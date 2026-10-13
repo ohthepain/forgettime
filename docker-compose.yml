@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: forgettime
+      POSTGRES_PASSWORD: forgettime
+      POSTGRES_DB: forgettime
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5434}:5432"
+    volumes:
+      # PostgreSQL 18 stores its cluster below /var/lib/postgresql/18/docker.
+      - forgettime_postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forgettime -d forgettime"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  forgettime_postgres:

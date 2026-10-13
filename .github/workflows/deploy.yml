@@ -1,0 +1,70 @@
+name: Deploy (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Provisioned environment to deploy
+        required: true
+        type: choice
+        options: [staging, production]
+permissions:
+  contents: read
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://forgettime:forgettime@localhost:5432/forgettime
+      BETTER_AUTH_SECRET: ci-only-non-production-test-secret-at-least-32-characters
+      BETTER_AUTH_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate && pnpm typecheck && pnpm test && pnpm build
+  deploy:
+    needs: validate
+    runs-on: ubuntu-22.04-arm
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      FORGETTIME_ENV: ${{ inputs.environment }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
+      AWS_TF_STATE_BUCKET: ${{ secrets.AWS_TF_STATE_BUCKET }}
+      AWS_TF_LOCK_TABLE: ${{ secrets.AWS_TF_LOCK_TABLE }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEPLOY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+      - uses: docker/setup-buildx-action@v3
+      - name: Initialize existing application state (no infrastructure apply)
+        shell: bash
+        run: |
+          test -n "$AWS_TF_STATE_BUCKET"
+          test -n "$AWS_TF_LOCK_TABLE"
+          terraform -chdir=terraform init -input=false \
+            -backend-config="bucket=$AWS_TF_STATE_BUCKET" \
+            -backend-config="key=forgettime/app/terraform.tfstate" \
+            -backend-config="region=$AWS_REGION" \
+            -backend-config="dynamodb_table=$AWS_TF_LOCK_TABLE" \
+            -backend-config="encrypt=true"
+      - name: Build, push, deploy and verify
+        run: scripts/deploy.sh "$FORGETTIME_ENV"

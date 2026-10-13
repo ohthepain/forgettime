@@ -1,0 +1,81 @@
+{
+  "name": "forgettime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "imports": {
+    "#/*": "./src/*"
+  },
+  "scripts": {
+    "dev": "vite dev --port 3030",
+    "build": "prisma generate && vite build",
+    "start": "node server-production.mjs",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "prisma generate",
+    "db:up": "docker compose up -d",
+    "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+    "cap:prepare": "node scripts/prepare-capacitor.mjs",
+    "cap:sync": "pnpm cap:prepare && cap sync",
+    "cap:sync:android": "pnpm cap:prepare && cap sync android",
+    "cap:android": "cap open android",
+    "cap:ios": "cap open ios"
+  },
+  "dependencies": {
+    "@aws-sdk/client-ses": "3.1034.0",
+    "@better-auth/prisma-adapter": "1.6.6",
+    "@capacitor/app": "8.1.1",
+    "@capacitor/core": "8.4.2",
+    "@hono/node-server": "1.19.11",
+    "@prisma/adapter-pg": "7.9.1",
+    "@prisma/client": "7.9.1",
+    "@tanstack/react-router": "1.168.23",
+    "@tanstack/react-start": "1.167.42",
+    "better-auth": "1.6.6",
+    "dotenv": "17.4.2",
+    "hono": "4.12.14",
+    "lucide-react": "0.545.0",
+    "pg": "8.20.0",
+    "react": "19.2.5",
+    "react-dom": "19.2.5",
+    "zod": "4.6.2",
+    "zustand": "5.0.12",
+    "forgettime-audio": "file:plugins/forgettime-audio"
+  },
+  "devDependencies": {
+    "@capacitor/android": "8.4.2",
+    "@capacitor/cli": "8.4.2",
+    "@capacitor/ios": "8.4.2",
+    "@tailwindcss/vite": "4.2.4",
+    "@types/node": "22.19.17",
+    "@types/pg": "8.20.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.1",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/dom": "10.4.1",
+    "jsdom": "28.1.0",
+    "prisma": "7.9.1",
+    "tailwindcss": "4.2.4",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "vite": "8.0.9",
+    "vitest": "3.2.4"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "lightningcss",
+      "prisma",
+      "@prisma/engines"
+    ]
+  }
+}

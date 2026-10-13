@@ -1,0 +1,6 @@
+# Use existing state storage, with a Forgettime-specific key. No shared resource imports.
+bucket         = "REPLACE_WITH_STATE_BUCKET"
+key            = "forgettime/app/terraform.tfstate"
+region         = "eu-central-1"
+dynamodb_table = "REPLACE_WITH_STATE_LOCK_TABLE"
+encrypt        = true

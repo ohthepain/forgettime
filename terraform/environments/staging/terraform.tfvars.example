@@ -1,0 +1,11 @@
+environment                = "staging"
+aws_region                 = "eu-central-1"
+shared_state_bucket        = "REPLACE_WITH_SHARED_STATE_BUCKET"
+app_origin                 = "https://REPLACE_WITH_HOSTNAME"
+alb_certificate_arn        = "REPLACE_WITH_EXISTING_ACM_CERTIFICATE_ARN"
+# Replace 0 with an unused priority (1..50000); there is intentionally no guessed allocation.
+alb_listener_rule_priority = 0
+# False if another state already owns this certificate attachment to the listener.
+attach_alb_certificate     = true
+# Set to 1 after database provisioning and the initial image push.
+ecs_desired_count          = 0

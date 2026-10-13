@@ -1,0 +1,224 @@
+package app.forgettime.audio;
+
+import android.Manifest;
+import android.media.AudioFormat;
+import android.media.AudioManager;
+import android.media.AudioRecord;
+import android.media.AudioTimestamp;
+import android.media.MediaRecorder;
+import android.media.audiofx.AcousticEchoCanceler;
+import android.media.audiofx.AudioEffect;
+import android.media.audiofx.AutomaticGainControl;
+import android.media.audiofx.NoiseSuppressor;
+import android.os.Process;
+import com.getcapacitor.JSArray;
+import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
+import java.util.ArrayList;
+import java.util.List;
+
+@CapacitorPlugin(name = "ForgettimeAudio", permissions = {
+    @Permission(alias = "microphone", strings = { Manifest.permission.RECORD_AUDIO })
+})
+public class ForgettimeAudioPlugin extends Plugin {
+    private volatile Session session;
+    private PluginCall pendingStart;
+
+    @PluginMethod
+    public synchronized void start(PluginCall call) {
+        if (session != null || pendingStart != null) {
+            call.reject("Microphone capture is already starting or running.");
+            return;
+        }
+        pendingStart = call;
+        if (getPermissionState("microphone") != PermissionState.GRANTED) {
+            requestPermissionForAlias("microphone", call, "microphonePermissionResult");
+        } else {
+            begin(call);
+        }
+    }
+
+    @PermissionCallback
+    private synchronized void microphonePermissionResult(PluginCall call) {
+        if (pendingStart != call) return; // stop/background invalidated this request.
+        if (getPermissionState("microphone") != PermissionState.GRANTED) {
+            pendingStart = null;
+            call.reject("Microphone permission was denied. Enable it in Android app settings to listen.");
+            return;
+        }
+        begin(call);
+    }
+
+    private synchronized void begin(PluginCall call) {
+        if (pendingStart != call) return;
+        AudioRecord record = null;
+        try {
+            AudioManager manager = (AudioManager) getContext().getSystemService(android.content.Context.AUDIO_SERVICE);
+            boolean unprocessed = manager != null && "true".equals(manager.getProperty(AudioManager.PROPERTY_SUPPORT_AUDIO_SOURCE_UNPROCESSED));
+            int input = unprocessed ? MediaRecorder.AudioSource.UNPROCESSED : MediaRecorder.AudioSource.VOICE_RECOGNITION;
+            int rate = 48000;
+            for (int candidate : new int[] {48000, 44100}) {
+                int minimum = AudioRecord.getMinBufferSize(candidate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+                if (minimum <= 0) continue;
+                record = new AudioRecord(input, candidate, AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT, Math.max(minimum * 4, candidate / 5 * 2));
+                if (record.getState() == AudioRecord.STATE_INITIALIZED) { rate = candidate; break; }
+                record.release();
+                record = null;
+            }
+            if (record == null) throw new IllegalStateException("No supported microphone capture format.");
+            Session capture = new Session(record, rate);
+            disableEffects(capture);
+            record.startRecording();
+            if (record.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING) {
+                throw new IllegalStateException("The microphone could not start.");
+            }
+            session = capture;
+            pendingStart = null;
+            JSObject result = new JSObject();
+            result.put("sampleRate", rate);
+            result.put("timestampQuality", "sample-clock");
+            call.resolve(result);
+            capture.worker = new Thread(() -> readAudio(capture), "ForgettimeAudioCapture");
+            capture.worker.start();
+        } catch (Exception error) {
+            pendingStart = null;
+            if (record != null) record.release();
+            call.reject("Unable to capture microphone audio: " + error.getMessage(), error);
+        }
+    }
+
+    private void disableEffects(Session capture) {
+        try {
+            int id = capture.record.getAudioSessionId();
+            if (AutomaticGainControl.isAvailable()) capture.effects.add(AutomaticGainControl.create(id));
+            if (NoiseSuppressor.isAvailable()) capture.effects.add(NoiseSuppressor.create(id));
+            if (AcousticEchoCanceler.isAvailable()) capture.effects.add(AcousticEchoCanceler.create(id));
+            for (AudioEffect effect : capture.effects) if (effect != null) effect.setEnabled(false);
+        } catch (RuntimeException ignored) {
+            // Some devices deny effect control; this is documented as a capture limitation.
+        }
+    }
+
+    private void readAudio(Session capture) {
+        Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO);
+        short[] buffer = new short[capture.sampleRate / 50];
+        AudioTimestamp stamp = new AudioTimestamp();
+        long frame = 0;
+        long previousRead = System.nanoTime();
+        int routeId = 0;
+        try {
+            while (capture.running) {
+                int count = capture.record.read(buffer, 0, buffer.length, AudioRecord.READ_BLOCKING);
+                if (!capture.running) break;
+                if (count <= 0) throw new IllegalStateException("AudioRecord stopped delivering samples (" + count + ").");
+                long now = System.nanoTime();
+                // Never silently concatenate audio after a capture-thread stall/possible overrun.
+                if (frame > 0 && (now - previousRead) / 1e9 > capture.record.getBufferSizeInFrames() / (double) capture.sampleRate) {
+                    throw new IllegalStateException("Audio capture was interrupted; restart listening for a fresh timing reference.");
+                }
+                previousRead = now;
+                android.media.AudioDeviceInfo route = capture.record.getRoutedDevice();
+                if (route != null) {
+                    if (routeId != 0 && routeId != route.getId()) throw new IllegalStateException("Microphone route changed; restart listening.");
+                    routeId = route.getId();
+                }
+                JSArray onsets = new JSArray();
+                double energy = 0;
+                for (int i = 0; i < count; i++) {
+                    double sample = buffer[i] / 32768.0;
+                    energy += sample * sample;
+                    DrumOnsetDetector.Onset onset = capture.detector.process(sample, (frame + i) / (double) capture.sampleRate);
+                    if (onset != null) {
+                        JSObject hit = new JSObject();
+                        hit.put("time", onset.time);
+                        hit.put("strength", onset.strength);
+                        hit.put("confidence", onset.confidence);
+                        onsets.put(hit);
+                    }
+                }
+                frame += count;
+                double analyzedTime = capture.detector.getProcessedThrough();
+                JSObject event = new JSObject();
+                event.put("time", analyzedTime);
+                event.put("sampleRate", capture.sampleRate);
+                event.put("level", Math.min(1, Math.sqrt(energy / count)));
+                event.put("onsets", onsets);
+                if (capture.record.getTimestamp(stamp, AudioTimestamp.TIMEBASE_MONOTONIC) == AudioRecord.SUCCESS) {
+                    event.put("timestampQuality", "hardware");
+                    event.put("hardwareTime", stamp.nanoTime / 1e9 + analyzedTime - stamp.framePosition / (double) capture.sampleRate);
+                } else {
+                    event.put("timestampQuality", "sample-clock");
+                }
+                if (capture.running && session == capture) notifyListeners("audioFrame", event);
+            }
+        } catch (Exception error) {
+            if (capture.running && session == capture) {
+                JSObject event = new JSObject();
+                event.put("message", error.getMessage());
+                notifyListeners("captureError", event);
+            }
+        } finally {
+            capture.running = false;
+            try { capture.record.stop(); } catch (RuntimeException ignored) { }
+            capture.record.release();
+            for (AudioEffect effect : capture.effects) if (effect != null) effect.release();
+            synchronized (this) { if (session == capture) session = null; }
+        }
+    }
+
+    @PluginMethod
+    public void stop(PluginCall call) {
+        stopCapture("stopped");
+        call.resolve();
+    }
+
+    private void stopCapture(String reason) {
+        Session capture;
+        synchronized (this) {
+            if (pendingStart != null) {
+                pendingStart.reject("Microphone start was cancelled.");
+                pendingStart = null;
+            }
+            capture = session;
+            if (capture != null) capture.running = false;
+            session = null;
+        }
+        if (capture != null) {
+            try { capture.record.stop(); } catch (RuntimeException ignored) { }
+            if (capture.worker != null && capture.worker != Thread.currentThread()) {
+                try { capture.worker.join(1000); } catch (InterruptedException error) { Thread.currentThread().interrupt(); }
+            }
+            JSObject event = new JSObject();
+            event.put("reason", reason);
+            notifyListeners("captureStopped", event);
+        }
+    }
+
+    @Override protected void handleOnPause() {
+        // A runtime permission prompt can pause Activity; do not cancel its pending request.
+        if (session != null) stopCapture("background");
+    }
+    @Override protected void handleOnStop() { stopCapture("background"); }
+    @Override protected void handleOnDestroy() { stopCapture("destroyed"); }
+
+    private static class Session {
+        final AudioRecord record;
+        final int sampleRate;
+        final DrumOnsetDetector detector;
+        final List<AudioEffect> effects = new ArrayList<>();
+        volatile boolean running = true;
+        Thread worker;
+        Session(AudioRecord record, int sampleRate) {
+            this.record = record;
+            this.sampleRate = sampleRate;
+            this.detector = new DrumOnsetDetector(sampleRate);
+        }
+    }
+}

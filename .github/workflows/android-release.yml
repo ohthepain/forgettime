@@ -1,0 +1,78 @@
+name: Android release bundle (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: Unique increasing Google Play version code
+        required: true
+        type: string
+      version_name:
+        description: User-visible version (for example 0.1.0)
+        required: true
+        type: string
+        default: '0.1.0'
+permissions:
+  contents: read
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+jobs:
+  signed-aab:
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CAP_REMOTE_APP_URL: ${{ vars.CAP_REMOTE_APP_URL }}
+      VERSION_CODE: ${{ inputs.version_code }}
+      VERSION_NAME: ${{ inputs.version_name }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Validate release configuration
+        run: |
+          node --input-type=module <<'JS'
+          const origin = new URL(process.env.CAP_REMOTE_APP_URL || 'invalid:')
+          if (origin.protocol !== 'https:' || origin.hostname.endsWith('.invalid') || origin.hostname === 'localhost') throw new Error('Configure a real HTTPS CAP_REMOTE_APP_URL in the production environment.')
+          if (!/^[1-9]\d*$/.test(process.env.VERSION_CODE || '') || Number(process.env.VERSION_CODE) > 2100000000) throw new Error('version_code must be a positive Play-compatible integer.')
+          if (!/^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$/.test(process.env.VERSION_NAME || '')) throw new Error('Provide a valid version_name.')
+          for (const name of ['ANDROID_KEYSTORE_BASE64', 'ANDROID_KEYSTORE_PASSWORD', 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD']) if (!process.env[name]) throw new Error(`Missing ${name} secret.`)
+          JS
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm cap:sync:android
+      - name: Build unsigned bundle
+        run: bash android/gradlew -p android bundleRelease --no-daemon -PforgettimeVersionCode="$VERSION_CODE" -PforgettimeVersionName="$VERSION_NAME"
+      - name: Sign with the upload key
+        run: |
+          umask 077
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/forgettime-upload.jks"
+          mkdir -p release-artifacts
+          jarsigner -keystore "$RUNNER_TEMP/forgettime-upload.jks" \
+            -storepass:env ANDROID_KEYSTORE_PASSWORD -keypass:env ANDROID_KEY_PASSWORD \
+            -signedjar "release-artifacts/forgettime-$VERSION_CODE.aab" \
+            android/app/build/outputs/bundle/release/app-release.aab "$ANDROID_KEY_ALIAS"
+          jarsigner -verify "release-artifacts/forgettime-$VERSION_CODE.aab"
+      - name: Remove temporary keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/forgettime-upload.jks"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forgettime-signed-release-${{ inputs.version_code }}
+          path: release-artifacts/*.aab
+          retention-days: 14
+          if-no-files-found: error

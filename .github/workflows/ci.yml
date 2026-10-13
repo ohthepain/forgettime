@@ -1,0 +1,50 @@
+name: CI
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  application:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://forgettime:forgettime@localhost:5432/forgettime
+      BETTER_AUTH_SECRET: ci-only-non-production-test-secret-at-least-32-characters
+      BETTER_AUTH_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+  terraform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - run: terraform -chdir=terraform fmt -check -recursive
+      - run: terraform -chdir=terraform init -backend=false -input=false
+      - run: terraform -chdir=terraform validate
+      - name: Check shell syntax
+        run: |
+          for script in scripts/tf-*.sh scripts/deploy*.sh scripts/test-database-provisioning.sh; do bash -n "$script"; done
+          for script in scripts/docker-entrypoint.sh terraform/provision-database.sh; do sh -n "$script"; done
+      - name: Verify non-destructive tenant provisioning on PostgreSQL 18
+        run: scripts/test-database-provisioning.sh
