@@ -3,7 +3,26 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { usePreferences } from './preferences'
 
 describe('persisted practice preferences', () => {
-  beforeEach(() => { localStorage.clear(); usePreferences.setState({ bpm: 100, mode: 'auto', startSensitivity: 50 }) })
+  beforeEach(() => { localStorage.clear(); usePreferences.setState({ bpm: 100, mode: 'auto', startSensitivity: 50, metronomeEnabled: true, metronomeMode: 'first-bar', helpThresholdMs: 100 }) })
+
+  it('restores metronome mode, mute and threshold while rejecting malformed saved values', async () => {
+    const state = usePreferences.getState()
+    state.setMetronomeMode('need-help')
+    state.setMetronomeEnabled(false)
+    state.setHelpThresholdMs(65)
+    const saved = localStorage.getItem('forgettime-preferences')!
+    usePreferences.setState({ metronomeEnabled: true, metronomeMode: 'first-bar', helpThresholdMs: 100 })
+    localStorage.setItem('forgettime-preferences', saved)
+    await usePreferences.persist.rehydrate()
+    expect(usePreferences.getState()).toMatchObject({ metronomeEnabled: false, metronomeMode: 'need-help', helpThresholdMs: 65 })
+    localStorage.setItem('forgettime-preferences', JSON.stringify({ version: 1, state: { metronomeMode: 'bad', metronomeEnabled: 'yes', helpThresholdMs: -100, setHelpThresholdMs: 'bad' } }))
+    await usePreferences.persist.rehydrate()
+    expect(usePreferences.getState()).toMatchObject({ metronomeEnabled: false, metronomeMode: 'need-help', helpThresholdMs: 65 })
+    state.setHelpThresholdMs(NaN)
+    expect(usePreferences.getState().helpThresholdMs).toBe(65)
+    state.setHelpThresholdMs(500)
+    expect(usePreferences.getState().helpThresholdMs).toBe(200)
+  })
 
   it.each([null, 0, -1, 301, '120', {}])('rejects malformed stored tempo %s without breaking the engine', async bpm => {
     localStorage.setItem('forgettime-preferences', JSON.stringify({ version: 1, state: { bpm, mode: 'unknown', setBpm: 'not a function' } }))

@@ -4,7 +4,7 @@ import { usePreferences } from '../lib/preferences'
 
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null)
-  const { startSensitivity, setStartSensitivity } = usePreferences()
+  const { startSensitivity, setStartSensitivity, helpThresholdMs, setHelpThresholdMs } = usePreferences()
   useEffect(() => {
     const element = dialog.current!
     const trigger = document.activeElement
@@ -32,6 +32,15 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         onChange={event => setStartSensitivity(Number(event.target.value))} />
       <div className="sensitivity-scale" aria-hidden="true"><span>Firmer hit</span><span>Softer hit</span></div>
       <p id="sensitivity-scope" className="setting-note">Only affects starting and restarting. Quieter hits still count once you’re playing.</p>
+    </div>
+    <div className="sensitivity-setting help-threshold-setting">
+      <div className="setting-label"><label htmlFor="help-threshold">Timing help threshold</label><output htmlFor="help-threshold">{helpThresholdMs} ms</output></div>
+      <p id="help-threshold-description">In Need help mode, the click returns after four consecutive beats more than this far ahead or behind. It goes quiet after four beats back within the threshold.</p>
+      <input id="help-threshold" type="range" min={20} max={200} step={5} value={helpThresholdMs}
+        aria-describedby="help-threshold-description" aria-valuetext={`${helpThresholdMs} milliseconds`}
+        onChange={event => setHelpThresholdMs(Number(event.target.value))} />
+      <div className="sensitivity-scale" aria-hidden="true"><span>More help</span><span>More freedom</span></div>
+      <p className="setting-note">Rests and unclear attacks break the streak. At fast tempos, use a smaller threshold.</p>
     </div>
   </dialog>
 }

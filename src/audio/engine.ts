@@ -15,6 +15,8 @@ export interface ResolvedHit {
   reason?: string;
   /** Start of the one-second display lifetime, on the capture clock. */
   displayedAt: number;
+  /** Coarse coaching estimate, including large errors hidden by the precise meter. */
+  guidance?: { intendedTime: number; errorMs: number };
 }
 export interface TimingSnapshot {
   status: TrackingStatus;
@@ -25,6 +27,7 @@ export interface TimingSnapshot {
   hits: ResolvedHit[];
   pendingCount: number;
   lockConfidence: number;
+  lastHitTime?: number | null;
 }
 
 interface Candidate { name: Subdivision; divisions: number; complexity: number }
@@ -138,6 +141,7 @@ export class TimingEngine {
       phaseOrigin: this.phaseOrigin, hits: this.resolved.map((hit) => ({ ...hit })),
       pendingCount: this.pending.length,
       lockConfidence: this.lockConfidence,
+      lastHitTime: this.lastHit,
     };
   }
 
@@ -205,6 +209,9 @@ export class TimingEngine {
         errorMs: reason ? null : errorMs,
         confidence, subdivision: best.candidate.name,
         uncertain: Boolean(reason), reason, displayedAt: now,
+        // Flams, weak attacks and competing rhythms never become coaching evidence.
+        guidance: !hit.ambiguous && !ambiguousGrid
+          ? { intendedTime: hit.time - errorMs / 1000, errorMs } : undefined,
       });
     });
     this.resolved = this.resolved.slice(-128);

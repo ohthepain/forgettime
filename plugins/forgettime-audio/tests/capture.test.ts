@@ -34,21 +34,24 @@ beforeEach(() => {
 })
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-function webAudio() {
+function webAudio(settings: MediaTrackSettings = {}, latency = { input: 0, base: 0, output: 0 }) {
   mocks.native = false
   const track = {
     stop: vi.fn(), muted: false, label: 'Mac microphone',
-    getSettings: () => ({ deviceId: 'mac' }),
+    getSettings: () => ({ deviceId: 'mac', latency: latency.input, ...settings }),
     onended: null as null | (() => void), onmute: null as null | (() => void), onunmute: null as null | (() => void),
   }
   const stream = { getTracks: () => [track], getAudioTracks: () => [track] }
   const getUserMedia = vi.fn().mockResolvedValue(stream)
   const close = vi.fn().mockResolvedValue(undefined)
-  const port = { onmessage: null as null | ((event: { data: unknown }) => void), close: vi.fn() }
+  const port = { onmessage: null as null | ((event: { data: unknown }) => void), close: vi.fn(), postMessage: vi.fn() }
   vi.stubGlobal('isSecureContext', true)
   vi.stubGlobal('AudioContext', class {
     state = 'running'
     sampleRate = 48000
+    currentTime = 0
+    baseLatency = latency.base
+    outputLatency = latency.output
     resume = vi.fn().mockResolvedValue(undefined)
     close = close
     audioWorklet = { addModule: vi.fn().mockResolvedValue(undefined) }
@@ -62,16 +65,59 @@ function webAudio() {
   Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia } })
   const emit = (data: unknown) => port.onmessage?.({ data })
   const samples = (startFrame: number) => emit({ type: 'samples', startFrame, sampleRate: 48000, samples: new Float32Array(1024) })
-  return { track, getUserMedia, close, emit, samples }
+  return { track, getUserMedia, close, emit, samples, port }
 }
 
 describe('browser capture recovery', () => {
+  it('corrects metronome output for reported device latency while keeping capture timestamps untouched', async () => {
+    const web = webAudio({}, { input: 0.1, base: 0.01, output: 0.14 })
+    const onFrame = vi.fn()
+    const capture = createAudioCapture({ onFrame })
+    const info = await capture.start()
+    expect(info.latency?.correctionSeconds).toBe(0.25)
+    web.samples(48000)
+    const plan = { origin: 1, bpm: 120, fromBeat: 1, untilTime: 1.35, stopTime: 3 }
+    capture.setMetronome(plan)
+    expect(web.port.postMessage).toHaveBeenLastCalledWith({ type: 'metronome', plan: { ...plan, origin: 0.75 } })
+    expect(onFrame.mock.calls[0][0].time).toBeCloseTo(49024 / 48000)
+    expect(onFrame.mock.calls[0][0].waveform[0].time).toBe(1)
+    capture.setMetronome(null)
+    expect(web.port.postMessage).toHaveBeenLastCalledWith({ type: 'metronome', plan: null })
+    await capture.stop()
+  })
+  it('delivers actual signed PCM peaks with capture timestamps for the waveform, independently of onset detection', async () => {
+    const web = webAudio()
+    const onFrame = vi.fn()
+    const capture = createAudioCapture({ onFrame })
+    await capture.start()
+    const samples = new Float32Array(1024)
+    samples[511] = 0.9
+    samples[650] = -0.7
+    web.emit({ type: 'samples', startFrame: 48000, sampleRate: 48000, samples })
+    const frame = onFrame.mock.calls[0][0]
+    expect(frame.onsets).toEqual([]) // Still in detector startup; the audio is nevertheless visible.
+    expect(frame.waveform).toHaveLength(10)
+    expect(frame.waveform[5]).toMatchObject({ time: 1.01, duration: 0.002, min: 0, max: expect.closeTo(0.9) })
+    expect(frame.waveform[6]).toMatchObject({ time: 1.012, min: expect.closeTo(-0.7), max: 0 })
+    await capture.stop()
+  })
+
+  it.each([true, false, undefined])('reports applied processing settings (%s) instead of assuming our request was honored', async autoGainControl => {
+    webAudio({ autoGainControl })
+    const capture = createAudioCapture({ onFrame: vi.fn() })
+    const info = await capture.start()
+    expect(info.processing?.autoGainControl).toBe(autoGainControl)
+    expect(info.processing?.noiseSuppression).toBeUndefined()
+    await capture.stop()
+  })
+
   it('requests the selected input and returns the actual track identity', async () => {
     const web = webAudio()
     const capture = createAudioCapture({ onFrame: vi.fn() }, { deviceId: 'mac' })
     await expect(capture.start()).resolves.toMatchObject({ inputLabel: 'Mac microphone', deviceId: 'mac' })
     expect(web.getUserMedia).toHaveBeenCalledWith({ audio: {
       deviceId: { exact: 'mac' }, channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false,
+      latency: { ideal: 0 },
     } })
     await capture.stop()
   })

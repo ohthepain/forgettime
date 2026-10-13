@@ -1,26 +1,34 @@
 import { useEffect, useState } from 'react'
-import { AudioLines, CircleHelp, Mic, Settings, Square, UserRound } from 'lucide-react'
+import { AudioLines, CircleHelp, Mic, Settings, Square, UserRound, Volume2, VolumeX } from 'lucide-react'
 import { usePreferences } from '../lib/preferences'
 import { usePractice } from '../audio/use-practice'
 import { usePresentedHits } from '../audio/use-presented-hits'
 import { AccountDialog } from './AccountDialog'
 import { SettingsDialog } from './SettingsDialog'
+import { BarWaveform } from './BarWaveform'
 import type { InterpretationMode } from '../audio/engine'
+import type { MetronomeMode } from '../audio/metronome'
 
 const MODES: { value: InterpretationMode; label: string }[] = [
   { value: 'auto', label: 'Auto' }, { value: 'straight', label: 'Straight' }, { value: 'swing', label: 'Swing / triplet' },
 ]
+const METRONOME_MODES: { value: MetronomeMode; label: string }[] = [
+  { value: 'first-bar', label: 'First bar' }, { value: 'always', label: 'Always' }, { value: 'need-help', label: 'Need help' },
+]
 export function PracticeScreen() {
-  const { bpm, mode, startSensitivity, setBpm, setMode } = usePreferences()
+  const { bpm, mode, startSensitivity, setBpm, setMode, metronomeEnabled, metronomeMode, helpThresholdMs, setMetronomeEnabled, setMetronomeMode } = usePreferences()
   const [tempoText, setTempoText] = useState(String(bpm))
   const [accountOpen, setAccountOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const practice = usePractice(bpm, mode, startSensitivity)
+  const practice = usePractice(bpm, mode, startSensitivity, { enabled: metronomeEnabled, mode: metronomeMode, thresholdMs: helpThresholdMs })
   const { snapshot, source, busy, error } = practice
   const running = source !== 'off'
   const playing = snapshot.status === 'playing'
   const showBeat = running && playing && snapshot.beat !== null
+  const inputProcessing = practice.captureInfo?.processing
+  const hasInputProcessing = inputProcessing?.autoGainControl === true
+    || inputProcessing?.echoCancellation === true || inputProcessing?.noiseSuppression === true
   const presented = usePresentedHits(snapshot.hits, playing)
   useEffect(() => { void usePreferences.persist.rehydrate() }, [])
   useEffect(() => { setTempoText(String(bpm)) }, [bpm])
@@ -59,6 +67,18 @@ export function PracticeScreen() {
       </div>
       <div className="meter-scale"><span>−100 ms</span><span>0</span><span>+100 ms</span></div>
       <div className="result-area"><p className={latest?.uncertain ? 'result uncertain' : 'result'}>{detail}</p><p className="result-note">{latest?.uncertain ? 'No timing score for this hit' : playing ? 'Reference stays fixed as you play' : 'Let your hands do the talking'}</p></div>
+      <BarWaveform waveform={practice.waveform} source={source} status={snapshot.status} />
+      <div className="metronome-control">
+        <div className="metronome-heading"><span className="small-label">METRONOME</span>
+          <button className={`metronome-toggle ${practice.metronomeActive ? 'is-playing' : ''}`} aria-label="Metronome sound" aria-pressed={metronomeEnabled}
+            disabled={source === 'simulation'} onClick={() => setMetronomeEnabled(!metronomeEnabled)}>
+            {metronomeEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}{metronomeEnabled ? practice.metronomeActive ? 'Playing' : 'On' : 'Muted'}
+          </button></div>
+        <div className="mode-control" role="group" aria-label="Metronome mode">{METRONOME_MODES.map(item => <button key={item.value} aria-pressed={metronomeMode === item.value} onClick={() => setMetronomeMode(item.value)} disabled={source === 'simulation'}>{item.label}</button>)}</div>
+        <p className="metronome-note">{source === 'simulation' ? 'Visual simulation · metronome is silent' : !metronomeEnabled ? 'Sound is muted' : metronomeMode === 'need-help'
+          ? `First bar, then help after 4 beats beyond ±${helpThresholdMs} ms` : metronomeMode === 'always' ? 'Keeps the beat until you pause' : 'Your first hit sets beat 1; the click joins on beat 2'}</p>
+        {metronomeEnabled && source !== 'simulation' && <p className="metronome-note">Use headphones so the microphone hears your playing, not the click.</p>}
+      </div>
       <div className="interpretation"><span className="small-label">INTERPRETATION</span><div className="mode-control" role="group" aria-label="Rhythm interpretation">{MODES.map(item => <button key={item.value} aria-pressed={mode === item.value} onClick={() => setMode(item.value)} disabled={busy || source === 'simulation'}>{item.label}</button>)}</div></div>
       {practice.canSelectInput && <div className="microphone-control"><label className="small-label" htmlFor="microphone-input">MICROPHONE</label><select id="microphone-input" value={practice.deviceId} disabled={busy || running} onChange={event => practice.setDeviceId(event.target.value)}>
         <option value="">Browser default</option>
@@ -69,6 +89,8 @@ export function PracticeScreen() {
         : <button className="primary-button" disabled={busy} onClick={() => void practice.listen()}><Mic size={18} />{busy ? 'Opening microphone…' : 'Enable microphone'}</button>}
       {error && <p className="error-message" role="alert">{error}</p>}
       {practice.captureNotice && <p className="capture-notice" role="status">{practice.captureNotice}</p>}
+      {practice.outputNotice && <p className="capture-notice" role="status">{practice.outputNotice}</p>}
+      {source === 'microphone' && hasInputProcessing && <p className="capture-notice" role="status">This microphone reports sound processing still enabled. Try another input if drum attacks are being missed.</p>}
       <p className="pause-note">A full bar of silence to start fresh.<br />{(240 / bpm).toLocaleString(undefined, { maximumFractionDigits: 2 })} seconds at {bpm} BPM · 4/4</p>
       {source === 'microphone' && <p className="source-note"><span className="input-level" aria-hidden="true"><i style={{ transform: `scaleX(${Math.min(1, practice.level * 4)})` }} /></span>{practice.captureInfo?.source === 'native' ? 'Native microphone' : practice.captureInfo?.inputLabel || 'Browser microphone'} · live audio</p>}
       {source === 'simulation' && <p className="source-note demo-label">Generated hits · microphone is off</p>}

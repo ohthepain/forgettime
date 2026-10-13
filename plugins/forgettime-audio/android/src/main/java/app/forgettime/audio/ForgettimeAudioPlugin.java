@@ -79,6 +79,7 @@ public class ForgettimeAudioPlugin extends Plugin {
             if (record.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING) {
                 throw new IllegalStateException("The microphone could not start.");
             }
+            try { capture.metronome = new MetronomeOutput(rate); } catch (RuntimeException ignored) { }
             session = capture;
             pendingStart = null;
             JSObject result = new JSObject();
@@ -130,10 +131,20 @@ public class ForgettimeAudioPlugin extends Plugin {
                     routeId = route.getId();
                 }
                 JSArray onsets = new JSArray();
+                JSArray waveform = new JSArray();
                 double energy = 0;
                 for (int i = 0; i < count; i++) {
                     double sample = buffer[i] / 32768.0;
                     energy += sample * sample;
+                    WaveformEnvelopeCapture.Point point = capture.waveform.process(sample, (frame + i) / (double) capture.sampleRate);
+                    if (point != null) {
+                        JSObject envelope = new JSObject();
+                        envelope.put("time", point.time);
+                        envelope.put("duration", point.duration);
+                        envelope.put("min", point.min);
+                        envelope.put("max", point.max);
+                        waveform.put(envelope);
+                    }
                     DrumOnsetDetector.Onset onset = capture.detector.process(sample, (frame + i) / (double) capture.sampleRate);
                     if (onset != null) {
                         JSObject hit = new JSObject();
@@ -150,12 +161,15 @@ public class ForgettimeAudioPlugin extends Plugin {
                 event.put("sampleRate", capture.sampleRate);
                 event.put("level", Math.min(1, Math.sqrt(energy / count)));
                 event.put("onsets", onsets);
+                event.put("waveform", waveform);
                 if (capture.record.getTimestamp(stamp, AudioTimestamp.TIMEBASE_MONOTONIC) == AudioRecord.SUCCESS) {
                     event.put("timestampQuality", "hardware");
                     event.put("hardwareTime", stamp.nanoTime / 1e9 + analyzedTime - stamp.framePosition / (double) capture.sampleRate);
+                    if (capture.metronome != null) capture.metronome.anchor(stamp.framePosition / (double) capture.sampleRate, stamp.nanoTime / 1e9);
                 } else {
                     event.put("timestampQuality", "sample-clock");
                 }
+                event.put("metronomeAvailable", capture.metronome != null && capture.metronome.available());
                 if (capture.running && session == capture) notifyListeners("audioFrame", event);
             }
         } catch (Exception error) {
@@ -166,11 +180,31 @@ public class ForgettimeAudioPlugin extends Plugin {
             }
         } finally {
             capture.running = false;
+            if (capture.metronome != null) capture.metronome.stop();
             try { capture.record.stop(); } catch (RuntimeException ignored) { }
             capture.record.release();
             for (AudioEffect effect : capture.effects) if (effect != null) effect.release();
             synchronized (this) { if (session == capture) session = null; }
         }
+    }
+
+    @PluginMethod
+    public void setMetronome(PluginCall call) {
+        Session capture = session;
+        if (capture == null || capture.metronome == null) { call.resolve(); return; }
+        JSObject value = call.getObject("plan");
+        if (value == null) { capture.metronome.update(null); call.resolve(); return; }
+        double origin = value.optDouble("origin", Double.NaN);
+        double bpm = value.optDouble("bpm", Double.NaN);
+        double untilTime = value.optDouble("untilTime", Double.NaN);
+        int fromBeat = value.optInt("fromBeat", -1);
+        if (!Double.isFinite(origin) || !Double.isFinite(bpm) || !Double.isFinite(untilTime) || bpm < 30 || bpm > 300 || fromBeat < 1) {
+            capture.metronome.update(null);
+            call.reject("Invalid metronome clock.");
+            return;
+        }
+        capture.metronome.update(new MetronomeOutput.Plan(origin, bpm, fromBeat, untilTime));
+        call.resolve();
     }
 
     @PluginMethod
@@ -191,6 +225,7 @@ public class ForgettimeAudioPlugin extends Plugin {
             session = null;
         }
         if (capture != null) {
+            if (capture.metronome != null) capture.metronome.update(null);
             try { capture.record.stop(); } catch (RuntimeException ignored) { }
             if (capture.worker != null && capture.worker != Thread.currentThread()) {
                 try { capture.worker.join(1000); } catch (InterruptedException error) { Thread.currentThread().interrupt(); }
@@ -212,6 +247,8 @@ public class ForgettimeAudioPlugin extends Plugin {
         final AudioRecord record;
         final int sampleRate;
         final DrumOnsetDetector detector;
+        final WaveformEnvelopeCapture waveform;
+        MetronomeOutput metronome;
         final List<AudioEffect> effects = new ArrayList<>();
         volatile boolean running = true;
         Thread worker;
@@ -219,6 +256,7 @@ public class ForgettimeAudioPlugin extends Plugin {
             this.record = record;
             this.sampleRate = sampleRate;
             this.detector = new DrumOnsetDetector(sampleRate);
+            this.waveform = new WaveformEnvelopeCapture(sampleRate);
         }
     }
 }

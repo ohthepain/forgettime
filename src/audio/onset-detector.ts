@@ -8,7 +8,9 @@ export interface DetectedOnset {
 /**
  * A small, causal transient detector for mono microphone PCM.
  *
- * Local energy contrast rejects gradual background changes and sustained tails. It is not
+ * A fast-attack, slow-release level reference gates faint sound between hits,
+ * without normalizing or compressing the PCM. Local energy contrast rejects
+ * gradual background changes and sustained tails. It is not
  * source separation: quiet ghost notes masked by loud cymbals can be missed.
  * Analysis windows are approximately 2.7 ms; reported timestamps point into the
  * captured window, independent of delivery jitter or the UI frame rate. The
@@ -21,8 +23,11 @@ export class OnsetDetector {
   private windowTime = 0;
   private expectedTime: number | null = null;
   private previousRms = 0;
-  private noiseFloor = 0.0005;
+  private levelReference = 0;
+  private levelHoldUntil = -Infinity;
   private lastOnsetTime = -Infinity;
+  private lastClearAttackTime = -Infinity;
+  private preAttackBackground = 0;
   private recentPeak = 0;
   private armed = true;
   private analyzedThrough: number | null = null;
@@ -41,8 +46,11 @@ export class OnsetDetector {
     this.filled = 0;
     this.expectedTime = null;
     this.previousRms = 0;
-    this.noiseFloor = 0.0005;
+    this.levelReference = 0;
+    this.levelHoldUntil = -Infinity;
     this.lastOnsetTime = -Infinity;
+    this.lastClearAttackTime = -Infinity;
+    this.preAttackBackground = 0;
     this.recentPeak = 0;
     this.armed = true;
     this.analyzedThrough = null;
@@ -87,23 +95,45 @@ export class OnsetDetector {
     const meanEnergy = energy / this.window.length;
     const rms = Math.sqrt(meanEnergy);
     const backgroundRms = Math.sqrt(Math.max(0, this.historyEnergy) / Math.max(1, this.historyCount));
+    let shortEnergy = 0;
+    for (let i = 1; i <= 3; i += 1) {
+      shortEnergy += this.energyHistory[(this.historyIndex + this.energyHistory.length - i) % this.energyHistory.length];
+    }
+    const shortRms = Math.sqrt(shortEnergy / 3);
     const backgroundReady = this.historyCount === this.energyHistory.length;
     this.historyEnergy += meanEnergy - this.energyHistory[this.historyIndex];
     this.energyHistory[this.historyIndex] = meanEnergy;
     this.historyIndex = (this.historyIndex + 1) % this.energyHistory.length;
     this.historyCount = Math.min(this.historyCount + 1, this.energyHistory.length);
     const previous = this.previousRms;
-    const floor = Math.max(0.006, this.noiseFloor * 2.5);
+    // Fast attack, slow recovery, without applying gain to the PCM. Hold
+    // the recent playing level for 1 s, then release with a 4 s time constant.
+    // Derive decay from sample duration, never callback cadence.
+    if (this.windowTime >= this.levelHoldUntil) {
+      this.levelReference *= Math.exp(-this.window.length / this.sampleRate / 4);
+    }
+    if (rms >= this.levelReference * 0.7) {
+      this.levelHoldUntil = this.windowTime + 1;
+    }
+    this.levelReference = Math.max(rms, this.levelReference);
+    const floor = 0.006;
+    const minimumLevel = Math.max(floor, this.levelReference * 0.05);
     const rise = rms - previous;
     const ratio = rms / Math.max(previous, floor);
-    const contrast = rms / Math.max(backgroundRms, floor);
+    const elapsed = this.windowTime - this.lastOnsetTime;
+    // A preceding accent must not mask a softer, distinct follow-up merely
+    // because it is still in the 32 ms history. Use the shorter baseline only
+    // just after an accepted attack; keep long-history rumble rejection otherwise.
+    // Retain the room level before the accent, and do not let follow-ups extend
+    // this exception indefinitely (e.g. on successive low-frequency troughs).
+    const fullContrast = rms / Math.max(backgroundRms, floor);
+    const baseline = this.windowTime - this.lastClearAttackTime < 0.09
+      ? Math.min(backgroundRms, Math.max(shortRms, this.preAttackBackground)) : backgroundRms;
+    const contrast = rms / Math.max(baseline, floor);
     if (rms < this.recentPeak * 0.7) this.armed = true;
-    // Let the floor fall relatively quickly in silence, rise slowly in sound.
-    this.noiseFloor += (rms - this.noiseFloor) * (rms < this.noiseFloor ? 0.03 : 0.0005);
     this.previousRms = rms;
     this.recentPeak = Math.max(rms, this.recentPeak * 0.99);
-    const elapsed = this.windowTime - this.lastOnsetTime;
-    if (!backgroundReady || elapsed < 0.018 || (!this.armed && ratio < 2.5) || rms < floor || rise < 0.002 || ratio < 1.55 || contrast < 1.8) return null;
+    if (!backgroundReady || elapsed < 0.018 || (!this.armed && ratio < 2.5) || rms < minimumLevel || rise < 0.002 || ratio < 1.55 || contrast < 1.8) return null;
 
     // Back within this captured window to the attack, instead of stamping its end.
     let offset = 0;
@@ -111,6 +141,10 @@ export class OnsetDetector {
     while (offset < this.window.length - 1 && Math.abs(this.window[offset]) < attackThreshold) offset += 1;
     const time = this.windowTime + offset / this.sampleRate;
     this.lastOnsetTime = time;
+    if (fullContrast >= 1.8) {
+      this.lastClearAttackTime = time;
+      this.preAttackBackground = backgroundRms;
+    }
     this.armed = false;
     this.recentPeak = Math.max(this.recentPeak, rms);
     return {

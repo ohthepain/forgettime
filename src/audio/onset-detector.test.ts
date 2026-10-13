@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { OnsetDetector } from './onset-detector';
+import { OnsetDetector, type DetectedOnset } from './onset-detector';
 import { TimingEngine } from './engine';
+import { accentFollowUpFixture, levelRecoveryFixture } from './fixtures/level-recovery';
 
 const rate = 48_000;
 /** Deterministic synthetic impulses/noise. These are not acoustic drum recordings. */
@@ -45,12 +46,71 @@ function ambience(duration: number, frequency: number, amplitude = 0.04, already
 }
 
 describe('captured-audio transient detection (synthetic fixtures)', () => {
+  it.each([44_100, 48_000])('recovers slowly after accents, retains ghost notes and eventually accepts quieter playing at %i Hz', sampleRate => {
+    const { samples, expectedTimes } = levelRecoveryFixture(sampleRate);
+    const original = samples.slice();
+    const detector = new OnsetDetector();
+    const onsets: DetectedOnset[] = [];
+    for (let i = 0; i < samples.length; i += 997) {
+      onsets.push(...detector.process(samples.subarray(i, i + 997), i / sampleRate, sampleRate));
+    }
+    expect(onsets).toHaveLength(expectedTimes.length);
+    expectedTimes.forEach((time, i) => expect(Math.abs(onsets[i].time - time)).toBeLessThan(0.004));
+    expect(onsets[2].strength).toBeLessThan(onsets[1].strength / 5);
+    // Recovery affects detection only: no gain or compression is applied to samples.
+    expect(samples).toEqual(original);
+  });
+
+  it.each([44_100, 48_000])('finds distinct softer attacks 40 ms after accents at %i Hz', sampleRate => {
+    const { samples, expectedTimes } = accentFollowUpFixture(sampleRate);
+    const onsets = new OnsetDetector().process(samples, 0, sampleRate);
+    expect(onsets).toHaveLength(expectedTimes.length);
+    expectedTimes.forEach((time, i) => expect(Math.abs(onsets[i].time - time)).toBeLessThan(0.004));
+    expect(onsets[1].strength).toBeLessThan(onsets[0].strength / 5);
+  });
+
+  it('ignores faint post-playing transients through the full-bar timeout without hiding the beat early', () => {
+    const { samples } = levelRecoveryFixture(rate);
+    const detector = new OnsetDetector();
+    const engine = new TimingEngine({ bpm: 120 });
+    engine.start(0);
+    let lastHit = 0;
+    let phase: number | null = null;
+    let pausedAt = 0;
+    for (let i = 0; i < samples.length; i += 997) {
+      for (const onset of detector.process(samples.subarray(i, i + 997), i / rate, rate)) {
+        engine.addOnset(onset);
+        lastHit = onset.time;
+      }
+      const time = detector.processedThrough ?? 0;
+      const state = engine.snapshot(time);
+      if (state.status === 'playing') {
+        phase ??= state.phaseOrigin;
+        expect(state.phaseOrigin).toBe(phase);
+        expect(state.beat).not.toBeNull();
+      }
+      if (state.status === 'paused') { pausedAt = time; break; }
+    }
+    expect(lastHit).toBeCloseTo(1.1, 2);
+    expect(pausedAt - lastHit).toBeGreaterThanOrEqual(2);
+    expect(pausedAt - lastHit).toBeLessThan(2.024);
+  });
+
   it.each([25, 40, 60, 90, 160, 350])('ignores slowly passing %i Hz rumble instead of starting a performance', frequency => {
     expect(detect(ambience(4, frequency))).toEqual([]);
   });
 
   it('does not manufacture an opening hit from background sound already present at activation', () => {
     expect(detect(ambience(2, 45, 0.08, true))).toEqual([]);
+  });
+
+  it.each([25, 40, 60, 90, 160, 350])('does not reopen detection on ongoing %i Hz room noise after an accent', frequency => {
+    const samples = ambience(3, frequency, 0.08, true);
+    const accent = fixture(3, [{ time: 0.1, amplitude: 0.8, decay: 0.008 }]);
+    for (let i = 0; i < samples.length; i++) samples[i] += accent[i];
+    const onsets = detect(samples);
+    expect(onsets).toHaveLength(1);
+    expect(onsets[0].time).toBeCloseTo(0.1, 2);
   });
 
   it('rejects very low-level transients while retaining intentional quiet attacks', () => {

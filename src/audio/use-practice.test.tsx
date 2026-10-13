@@ -9,6 +9,7 @@ vi.mock('./capture', () => ({ createAudioCapture: mocked.create }))
 const info: CaptureInfo = { source: 'web', sampleRate: 48000, timestampQuality: 'sample-clock' }
 let callbacks: CaptureCallbacks
 let stopCapture: ReturnType<typeof vi.fn>
+let setMetronome: ReturnType<typeof vi.fn>
 function frame(time: number, attacks: number[] = []) {
   callbacks.onFrame({ ...info, time, level: 0.3, onsets: attacks.map(value => ({ time: value, confidence: 0.95, strength: 0.8 })) })
 }
@@ -17,11 +18,35 @@ describe('live timing integration', () => {
   beforeEach(() => {
     mocked.create.mockReset()
     stopCapture = vi.fn().mockResolvedValue(undefined)
-    mocked.create.mockImplementation((value: CaptureCallbacks) => { callbacks = value; return { start: vi.fn().mockResolvedValue(info), stop: stopCapture } })
+    setMetronome = vi.fn()
+    mocked.create.mockImplementation((value: CaptureCallbacks) => { callbacks = value; return { start: vi.fn().mockResolvedValue(info), stop: stopCapture, setMetronome } })
     vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
     vi.stubGlobal('cancelAnimationFrame', vi.fn())
   })
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
+
+  it('updates and mutes output without resetting the beat, and keeps output failures separate from capture', async () => {
+    const { result, rerender } = renderHook(({ enabled, thresholdMs }) => usePractice(120, 'auto', 50, { enabled, mode: 'always', thresholdMs }),
+      { initialProps: { enabled: true, thresholdMs: 100 } })
+    await act(() => result.current.listen())
+    act(() => frame(100.02, [100]))
+    expect(setMetronome).toHaveBeenLastCalledWith({ origin: 100, bpm: 120, fromBeat: 1, untilTime: expect.closeTo(100.37), stopTime: 102 })
+    expect(result.current.metronomeActive).toBe(true)
+    rerender({ enabled: false, thresholdMs: 70 })
+    expect(setMetronome).toHaveBeenLastCalledWith(null)
+    expect(result.current.snapshot.phaseOrigin).toBe(100)
+    expect(result.current.metronomeActive).toBe(false)
+    rerender({ enabled: true, thresholdMs: 70 })
+    act(() => callbacks.onOutputError?.('Output unavailable'))
+    act(() => frame(100.5, [100.5]))
+    expect(result.current.outputNotice).toBe('Output unavailable')
+    expect(result.current.metronomeActive).toBe(false)
+    expect(result.current.snapshot.phaseOrigin).toBe(100)
+    expect(result.current.source).toBe('microphone')
+    expect(stopCapture).not.toHaveBeenCalled()
+    act(() => callbacks.onDiscontinuity?.())
+    expect(setMetronome).toHaveBeenLastCalledWith(null)
+  })
 
   it('uses capture timestamps for drift, beat counting and exact silence timeout', async () => {
     vi.spyOn(performance, 'now').mockReturnValue(999_999)
@@ -45,6 +70,29 @@ describe('live timing integration', () => {
     expect(mocked.create).toHaveBeenCalledTimes(1)
   })
 
+  it('aligns the real envelope and immediate detected markers to the beat, wraps, and clears on stop', async () => {
+    vi.spyOn(performance, 'now').mockReturnValue(123456789)
+    const { result } = renderHook(() => usePractice(120, 'auto'))
+    await act(() => result.current.listen())
+    const send = (time: number, start: number, peak: number, attacks: number[]) => callbacks.onFrame({
+      ...info, time, level: peak,
+      waveform: [{ time: start, duration: 0.02, min: -peak, max: peak }],
+      onsets: attacks.map(time => ({ time, strength: 0.8, confidence: 0.95 })),
+    })
+    act(() => send(100.1, 100, 0.8, [100]))
+    expect(result.current.snapshot.hits).toEqual([]) // The anchor has no timing score.
+    expect(result.current.waveform.hits[0].position).toBe(0) // But it is a real detected hit.
+    expect(result.current.waveform.max[0]).toBe(0.8)
+    act(() => send(101.6, 101.5, 0.3, [101.5]))
+    act(() => send(102.02, 102, 0, []))
+    expect(result.current.waveform.max[0]).toBe(0)
+    expect(result.current.waveform.max[384]).toBe(0.3)
+    expect(result.current.waveform.hits.map(hit => hit.position)).toEqual([0.75])
+    expect(result.current.waveform.progress).toBeCloseTo(0.01)
+    await act(() => result.current.stop())
+    expect(result.current.waveform).toMatchObject({ min: [], hits: [], progress: null })
+  })
+
   it('resets the reference when settings change without reopening capture', async () => {
     const { result, rerender } = renderHook(({ bpm }) => usePractice(bpm, 'auto'), { initialProps: { bpm: 120 } })
     await act(() => result.current.listen())
@@ -52,6 +100,7 @@ describe('live timing integration', () => {
     expect(result.current.snapshot.status).toBe('playing')
     rerender({ bpm: 60 })
     expect(result.current.snapshot).toMatchObject({ status: 'listening', bpm: 60, beat: null })
+    expect(result.current.waveform.progress).toBeNull()
     expect(result.current.source).toBe('microphone')
     expect(mocked.create).toHaveBeenCalledTimes(1)
   })
@@ -61,7 +110,9 @@ describe('live timing integration', () => {
     await act(() => result.current.listen())
     act(() => { for (let i = 0; i < 6; i++) frame(100 + i * 0.5, [100 + i * 0.5]) })
     expect(result.current.snapshot.phaseOrigin).toBe(100)
+    expect(result.current.waveform.hits.length).toBeGreaterThan(0)
     act(() => callbacks.onDiscontinuity?.())
+    expect(result.current.waveform).toMatchObject({ min: [], hits: [], progress: null })
     expect(result.current.snapshot).toMatchObject({ status: 'listening', phaseOrigin: null, beat: null, hits: [] })
     expect(result.current.captureNotice).toContain('input interrupted')
     expect(result.current.source).toBe('microphone')
@@ -94,7 +145,7 @@ describe('live timing integration', () => {
     let resolveStart!: (value: CaptureInfo) => void
     mocked.create.mockImplementation((value: CaptureCallbacks) => {
       callbacks = value
-      return { start: () => new Promise<CaptureInfo>(resolve => { resolveStart = resolve }), stop: stopCapture }
+      return { start: () => new Promise<CaptureInfo>(resolve => { resolveStart = resolve }), stop: stopCapture, setMetronome: vi.fn() }
     })
     const { result } = renderHook(() => usePractice(120, 'auto'))
     let listening!: Promise<void>
@@ -109,7 +160,7 @@ describe('live timing integration', () => {
   })
 
   it('keeps permission errors visible and leaves the engine stopped', async () => {
-    mocked.create.mockReturnValue({ start: vi.fn().mockRejectedValue(new Error('Microphone permission denied')), stop: stopCapture })
+    mocked.create.mockReturnValue({ start: vi.fn().mockRejectedValue(new Error('Microphone permission denied')), stop: stopCapture, setMetronome: vi.fn() })
     const { result } = renderHook(() => usePractice(120, 'auto'))
     await act(() => result.current.listen())
     expect(result.current).toMatchObject({ source: 'off', busy: false, error: 'Microphone permission denied' })

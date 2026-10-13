@@ -3,10 +3,16 @@ import { TimingEngine, type InterpretationMode } from './engine'
 import { createAudioCapture, type CaptureInfo } from './capture'
 import { Capacitor } from '@capacitor/core'
 import { DEFAULT_START_SENSITIVITY } from './start-sensitivity'
+import { BarWaveformBuffer, emptyWaveform } from './bar-waveform'
+import { simulationWaveform } from './simulation-waveform'
+import type { DetectedOnset } from './onset-detector'
+import { DEFAULT_METRONOME, MetronomeCoach, type MetronomeOptions } from './metronome'
 
 type Source = 'off' | 'microphone' | 'simulation'
-export function usePractice(bpm: number, mode: InterpretationMode, startSensitivity = DEFAULT_START_SENSITIVITY) {
+export function usePractice(bpm: number, mode: InterpretationMode, startSensitivity = DEFAULT_START_SENSITIVITY, metronomeOptions = DEFAULT_METRONOME) {
   const engine = useRef(new TimingEngine({ bpm, mode, startSensitivity }))
+  const waveformBuffer = useRef(new BarWaveformBuffer())
+  const [waveform, setWaveform] = useState(emptyWaveform)
   const [snapshot, setSnapshot] = useState(() => engine.current.snapshot(0))
   const [source, setSource] = useState<Source>('off')
   const [busy, setBusy] = useState(false)
@@ -21,6 +27,11 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
   const generation = useRef(0)
   const animation = useRef(0)
   const now = useRef(0)
+  const coach = useRef(new MetronomeCoach())
+  const outputOptions = useRef<MetronomeOptions>(metronomeOptions)
+  const [metronomeActive, setMetronomeActive] = useState(false)
+  const [outputNotice, setOutputNotice] = useState<string | null>(null)
+  const outputFailed = useRef(false)
 
   const stop = useCallback(async () => {
     generation.current++
@@ -28,6 +39,11 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
     const previous = capture.current
     capture.current = null
     engine.current.stop()
+    coach.current.reset()
+    setMetronomeActive(false)
+    setOutputNotice(null)
+    outputFailed.current = false
+    setWaveform(waveformBuffer.current.reset())
     setSource('off')
     setBusy(false)
     setLevel(0)
@@ -59,6 +75,15 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
     setSnapshot(engine.current.snapshot(now.current))
   }, [bpm, mode, startSensitivity])
 
+  useEffect(() => { setWaveform(waveformBuffer.current.reset()) }, [bpm, mode])
+
+  useEffect(() => {
+    outputOptions.current = metronomeOptions
+    const state = coach.current.update(engine.current.snapshot(now.current), now.current, metronomeOptions)
+    capture.current?.setMetronome(state.plan)
+    setMetronomeActive(Boolean(state.plan) && !outputFailed.current)
+  }, [bpm, mode, metronomeOptions.enabled, metronomeOptions.mode, metronomeOptions.thresholdMs])
+
   useEffect(() => {
     const onVisibility = () => { if (document.hidden) void stop() }
     document.addEventListener('visibilitychange', onVisibility)
@@ -83,6 +108,13 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
         now.current = frame.time
         for (const onset of frame.onsets) engine.current.addOnset(onset)
         const next = engine.current.snapshot(frame.time)
+        const coaching = coach.current.update(next, frame.time, outputOptions.current)
+        audio.setMetronome(coaching.plan)
+        setMetronomeActive(Boolean(coaching.plan) && frame.metronomeAvailable !== false && !outputFailed.current)
+        if (frame.metronomeAvailable === false && coaching.plan && frame.time > (next.phaseOrigin ?? frame.time) + 1) {
+          setOutputNotice('Metronome is waiting for a reliable audio output clock. Try another audio device.')
+        } else if (!outputFailed.current) setOutputNotice(null)
+        setWaveform(waveformBuffer.current.addFrame(frame.time, frame.waveform, frame.onsets, next))
         setSnapshot(next)
         setCaptureNotice(notice => next.status === 'playing' ? null : notice ? 'Microphone input restored · play to set a fresh beat' : null)
         setLevel(frame.level)
@@ -90,6 +122,10 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
       onDiscontinuity: () => {
         if (generation.current !== activeGeneration) return
         engine.current.start(now.current)
+        coach.current.reset()
+        audio.setMetronome(null)
+        setMetronomeActive(false)
+        setWaveform(waveformBuffer.current.reset())
         setSnapshot(engine.current.snapshot(now.current))
         setLevel(0)
         setCaptureNotice('Microphone input interrupted · waiting for audio')
@@ -101,6 +137,12 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
       },
       onStopped: () => {
         if (generation.current === activeGeneration) void stop()
+      },
+      onOutputError: message => {
+        if (generation.current !== activeGeneration) return
+        outputFailed.current = true
+        setOutputNotice(message)
+        setMetronomeActive(false)
       },
     }, { deviceId })
     capture.current = audio
@@ -128,24 +170,33 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
     now.current = 0
     engine.current.start(0)
     let hitIndex = 0
+    let previousTime = 0
+    let demoHits: DetectedOnset[] = []
     const started = performance.now()
     const beatSeconds = 60 / bpm
     const tick = () => {
       const time = (performance.now() - started) / 1000
       now.current = time
+      const freshHits: DetectedOnset[] = []
       // Demonstration timestamps only: never presented as microphone measurements.
       while (true) {
         const errorSeconds = hitIndex < 8 ? 0 : Math.sin(hitIndex * 1.13) * 0.032
         const hitTime = 0.4 + hitIndex * beatSeconds / 2 + errorSeconds
         if (hitTime > time) break
-        engine.current.addOnset({ time: hitTime, strength: 0.8, confidence: 0.95 })
+        const hit = { time: hitTime, strength: [0.85, 0.14, 0.5, 0.05, 0.28][hitIndex % 5], confidence: 0.95 }
+        engine.current.addOnset(hit)
+        freshHits.push(hit)
         hitIndex++
       }
-      setSnapshot(engine.current.snapshot(time))
+      demoHits = [...demoHits, ...freshHits].filter(hit => hit.time >= time - 8.3)
+      const next = engine.current.snapshot(time)
+      setWaveform(waveformBuffer.current.addFrame(time, simulationWaveform(previousTime, time, demoHits), freshHits, next))
+      previousTime = time
+      setSnapshot(next)
       animation.current = requestAnimationFrame(tick)
     }
     animation.current = requestAnimationFrame(tick)
   }, [bpm, stop])
 
-  return { snapshot, source, busy, error, captureInfo, captureNotice, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
+  return { snapshot, waveform, source, busy, error, captureInfo, captureNotice, outputNotice, metronomeActive, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
 }

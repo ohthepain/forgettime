@@ -1,6 +1,9 @@
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core'
 import { ForgettimeAudio } from 'forgettime-audio'
 import { OnsetDetector, type DetectedOnset } from './onset-detector'
+import { WaveformEnvelopeCapture, type WaveformEnvelope } from './waveform-envelope'
+import type { MetronomePlan } from './metronome'
+import { BrowserOutputAlignment, browserLatencyEstimate, type BrowserLatencyEstimate } from './output-alignment'
 
 export interface CaptureInfo {
   source: 'native' | 'web'
@@ -8,6 +11,10 @@ export interface CaptureInfo {
   timestampQuality: 'hardware' | 'sample-clock'
   inputLabel?: string
   deviceId?: string
+  /** Browser-reported applied settings. Missing values mean unknown, not disabled. */
+  processing?: Pick<MediaTrackSettings, 'autoGainControl' | 'echoCancellation' | 'noiseSuppression'>
+  /** Browser-reported estimates only; never inferred from a drummer's hits. */
+  latency?: BrowserLatencyEstimate
 }
 
 export interface CaptureFrame extends CaptureInfo {
@@ -17,6 +24,9 @@ export interface CaptureFrame extends CaptureInfo {
   onsets: DetectedOnset[]
   level: number
   hardwareTime?: number
+  /** Captured 2 ms min/max envelopes; optional for older native plugin builds. */
+  waveform?: WaveformEnvelope[]
+  metronomeAvailable?: boolean
 }
 
 export interface CaptureCallbacks {
@@ -25,11 +35,13 @@ export interface CaptureCallbacks {
   onStopped?: (reason: string) => void
   /** Missing browser input invalidates the reference, but need not close the mic. */
   onDiscontinuity?: () => void
+  onOutputError?: (message: string) => void
 }
 
 export interface AudioCapture {
   start: () => Promise<CaptureInfo>
   stop: () => Promise<void>
+  setMetronome: (plan: MetronomePlan | null) => void
 }
 
 /** Foreground-only live capture. Native builds require the native plugin. */
@@ -45,10 +57,17 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
   let worklet: AudioWorkletNode | undefined
   let listeners: PluginListenerHandle[] = []
   let nativeStarted = false
+  let outputFailed = false
+  let outputPending = false
+  let latestPlan: MetronomePlan | null = null
   const detector = new OnsetDetector()
+  const waveform = new WaveformEnvelopeCapture()
+  const outputAlignment = new BrowserOutputAlignment()
 
   const cleanup = async () => {
     running = false
+    latestPlan = null
+    outputAlignment.reset()
     info = undefined
     document.removeEventListener('visibilitychange', visibilityChanged)
     window.removeEventListener('pagehide', pageHidden)
@@ -123,6 +142,8 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
       document.addEventListener('visibilitychange', visibilityChanged)
       window.addEventListener('pagehide', pageHidden)
       detector.reset()
+      waveform.reset()
+      outputFailed = false
       try {
         if (Capacitor.isNativePlatform()) {
           if (!Capacitor.isPluginAvailable('ForgettimeAudio')) {
@@ -156,10 +177,12 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
           await currentContext.resume()
           ensureCurrent()
           if (!currentContext.audioWorklet) throw new Error('This browser does not support AudioWorklet microphone capture.')
-          const acquiredStream = await navigator.mediaDevices.getUserMedia({ audio: {
+          const inputConstraints: MediaTrackConstraints & { latency: { ideal: number } } = {
             channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false,
+            latency: { ideal: 0 },
             ...(options.deviceId ? { deviceId: { exact: options.deviceId } } : {}),
-          } })
+          }
+          const acquiredStream = await navigator.mediaDevices.getUserMedia({ audio: inputConstraints })
           if (!current()) {
             acquiredStream.getTracks().forEach((track) => track.stop())
             ensureCurrent()
@@ -176,6 +199,8 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
           const resetInput = () => {
             expectedFrame = undefined
             detector.reset()
+            waveform.reset()
+            outputAlignment.reset()
             if (!inputInterrupted) callbacks.onDiscontinuity?.()
             inputInterrupted = true
           }
@@ -199,6 +224,7 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
               // Do not pause while a just-before-timeout attack is in a partial window.
               time: detector.processedThrough ?? time,
               onsets, level: Math.min(1, Math.sqrt(energy / samples.length)), sampleRate,
+              waveform: waveform.process(samples, time, sampleRate),
               source: 'web', timestampQuality: 'sample-clock',
             })
           }
@@ -211,9 +237,16 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
           source.connect(worklet)
           worklet.connect(currentContext.destination)
           const track = acquiredStream.getAudioTracks()[0]
+          const settings = track?.getSettings()
           info = {
             source: 'web', sampleRate: currentContext.sampleRate, timestampQuality: 'sample-clock',
-            inputLabel: track?.label, deviceId: track?.getSettings().deviceId,
+            inputLabel: track?.label, deviceId: settings?.deviceId,
+            processing: {
+              autoGainControl: settings?.autoGainControl,
+              echoCancellation: settings?.echoCancellation,
+              noiseSuppression: settings?.noiseSuppression,
+            },
+            latency: browserLatencyEstimate(currentContext, settings ?? {}),
           }
           currentContext.onstatechange = () => {
             if (current() && running && currentContext.state !== 'running') interrupt('audio-interrupted')
@@ -232,5 +265,33 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
     return operation
   }
 
-  return { start, stop }
+  const setMetronome = (plan: MetronomePlan | null) => {
+    if (outputFailed) return
+    if (worklet && context) {
+      const estimate = browserLatencyEstimate(context, stream?.getAudioTracks()[0]?.getSettings() ?? {})
+      worklet.port.postMessage({ type: 'metronome', plan: outputAlignment.align(plan, context.currentTime, estimate.correctionSeconds) })
+      return
+    }
+    if (!nativeStarted) return
+    if (!plan && !latestPlan && !outputPending) return
+    latestPlan = plan
+    if (outputPending) return
+    // Coalesce bridge backpressure, always retaining the most recent plan/mute.
+    const send = async () => {
+      outputPending = true
+      try {
+        let sent: MetronomePlan | null
+        do {
+          sent = latestPlan
+          await ForgettimeAudio.setMetronome({ plan: sent })
+        } while (nativeStarted && sent !== latestPlan)
+      } catch {
+        outputFailed = true
+        callbacks.onOutputError?.('Metronome output is unavailable. Rebuild the native app to update its audio plugin.')
+      } finally { outputPending = false }
+    }
+    void send()
+  }
+
+  return { start, stop, setMetronome }
 }

@@ -5,6 +5,7 @@ import { PracticeScreen } from './PracticeScreen'
 import { usePreferences } from '../lib/preferences'
 import { usePractice } from '../audio/use-practice'
 import { TimingEngine, type ResolvedHit } from '../audio/engine'
+import { emptyWaveform } from '../audio/bar-waveform'
 
 vi.mock('../audio/use-practice', () => ({ usePractice: vi.fn() }))
 vi.mock('./AccountDialog', () => ({ AccountDialog: () => null }))
@@ -12,7 +13,8 @@ vi.mock('./AccountDialog', () => ({ AccountDialog: () => null }))
 function practice(): ReturnType<typeof usePractice> {
   return {
     snapshot: new TimingEngine({ bpm: 100 }).snapshot(0), source: 'off', busy: false,
-    error: null, captureInfo: null, captureNotice: null, level: 0,
+    waveform: emptyWaveform(),
+    error: null, captureInfo: null, captureNotice: null, outputNotice: null, metronomeActive: false, level: 0,
     inputDevices: [], canSelectInput: false, deviceId: '', setDeviceId: vi.fn(),
     listen: vi.fn().mockResolvedValue(undefined), stop: vi.fn().mockResolvedValue(undefined), simulate: vi.fn().mockResolvedValue(undefined),
   }
@@ -73,6 +75,13 @@ describe('practice screen integration', () => {
     rerender(<PracticeScreen />)
     expect(selector.disabled).toBe(true)
     expect(screen.getByText('MacBook Microphone · live audio')).toBeDefined()
+    expect(screen.queryByText(/reports sound processing/)).toBeNull()
+    state = { ...state, captureInfo: { ...state.captureInfo!, processing: { autoGainControl: true } } }
+    rerender(<PracticeScreen />)
+    expect(screen.getByText(/reports sound processing still enabled/)).toBeDefined()
+    state = { ...state, captureInfo: { ...state.captureInfo!, processing: { autoGainControl: false } } }
+    rerender(<PracticeScreen />)
+    expect(screen.queryByText(/reports sound processing/)).toBeNull()
   })
 
   it('places early hits left, retains their mounted line through snapshot expiry, and draws no uncertain score', () => {
