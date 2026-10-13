@@ -1,9 +1,10 @@
 import type { DetectedOnset } from './onset-detector';
+import { DEFAULT_START_SENSITIVITY, normalizeStartSensitivity, startingStrength } from './start-sensitivity';
 
 export type InterpretationMode = 'auto' | 'straight' | 'swing';
 export type Subdivision = 'quarter' | 'eighth' | 'sixteenth' | 'triplet' | 'sextuplet';
-export type TrackingStatus = 'idle' | 'listening' | 'finding' | 'playing' | 'paused';
-export interface TimingOptions { bpm: number; mode?: InterpretationMode }
+export type TrackingStatus = 'idle' | 'listening' | 'playing' | 'paused';
+export interface TimingOptions { bpm: number; mode?: InterpretationMode; startSensitivity?: number }
 export interface ResolvedHit {
   id: number;
   time: number;
@@ -37,21 +38,16 @@ const CANDIDATES: Candidate[] = [
   { name: 'sextuplet', divisions: 6, complexity: 8 },
 ];
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
-const median = (values: number[]) => {
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
-};
 
 /** A locked, selected-tempo clock. Neither BPM nor phase follows subsequent drift. */
 export class TimingEngine {
   private bpm: number;
   private mode: InterpretationMode;
+  private startSensitivity: number;
   private status: TrackingStatus = 'idle';
   private phaseOrigin: number | null = null;
   private lockConfidence = 0;
   private lastHit: number | null = null;
-  private opening: PendingHit[] = [];
   private pending: PendingHit[] = [];
   private context: PendingHit[] = [];
   private resolved: ResolvedHit[] = [];
@@ -62,6 +58,7 @@ export class TimingEngine {
     this.assertBpm(options.bpm);
     this.bpm = options.bpm;
     this.mode = options.mode ?? 'auto';
+    this.startSensitivity = normalizeStartSensitivity(options.startSensitivity ?? DEFAULT_START_SENSITIVITY);
   }
 
   start(nowSeconds: number): void {
@@ -81,6 +78,8 @@ export class TimingEngine {
     const changed = (options.bpm !== undefined && options.bpm !== this.bpm) || (options.mode !== undefined && options.mode !== this.mode);
     this.bpm = options.bpm ?? this.bpm;
     this.mode = options.mode ?? this.mode;
+    // Sensitivity applies to the next start only; editing it cannot move a live beat.
+    if (options.startSensitivity !== undefined) this.startSensitivity = normalizeStartSensitivity(options.startSensitivity);
     if (changed) {
       const wasRunning = this.status !== 'idle';
       this.clearPerformance();
@@ -90,11 +89,21 @@ export class TimingEngine {
 
   addOnset(onset: DetectedOnset): void {
     this.assertTime(onset.time);
-    if (this.status === 'idle' || (this.lastHit !== null && onset.time <= this.lastHit)) return;
+    if (this.status === 'idle' || !Number.isFinite(onset.strength) || !Number.isFinite(onset.confidence)
+      || (this.lastHit !== null && onset.time <= this.lastHit)) return;
     this.advance(onset.time, false);
     if (this.status === 'listening' || this.status === 'paused') {
+      // Ignore weaker candidates completely while waiting. They must not start
+      // a beat, influence its origin, or keep a paused performance alive.
+      if (onset.strength < startingStrength(this.startSensitivity) || onset.confidence < 0.55) return;
       this.clearPerformance();
-      this.status = 'finding';
+      this.phaseOrigin = onset.time;
+      this.lastHit = onset.time;
+      this.lockConfidence = clamp(onset.confidence, 0, 1);
+      this.status = 'playing';
+      this.context = [{ ...onset, id: this.nextId++ }];
+      // This hit defines beat 1; scoring it would manufacture a zero error.
+      return;
     }
     const hit: PendingHit = {
       ...onset,
@@ -105,17 +114,11 @@ export class TimingEngine {
     // Sub-45 ms attacks cannot safely be assigned a precise musical intention.
     if (this.lastHit !== null && hit.time - this.lastHit < 0.045) {
       hit.ambiguous = 'Flam or roll: intended attack is uncertain';
-      const previous = this.pending.at(-1) ?? this.opening.at(-1);
+      const previous = this.pending.at(-1) ?? this.context.at(-1);
       if (previous) previous.ambiguous = hit.ambiguous;
     }
     if (hit.confidence < 0.55) hit.ambiguous ??= 'Weak or masked attack';
     this.lastHit = hit.time;
-    if (this.status === 'finding') {
-      this.opening.push(hit);
-      if (this.opening.length > 24) this.opening.shift();
-      this.tryLock();
-      return;
-    }
     this.pending.push(hit);
     // A short, consistent lookahead lets later attacks inform this interpretation.
     this.resolvePending(hit.time);
@@ -133,7 +136,7 @@ export class TimingEngine {
     return {
       status: this.status, bpm: this.bpm, mode: this.mode, beat,
       phaseOrigin: this.phaseOrigin, hits: this.resolved.map((hit) => ({ ...hit })),
-      pendingCount: this.pending.length + this.opening.length,
+      pendingCount: this.pending.length,
       lockConfidence: this.lockConfidence,
     };
   }
@@ -143,41 +146,14 @@ export class TimingEngine {
     return CANDIDATES.filter((candidate) => this.mode === 'auto' || (this.mode === 'straight' ? candidate.divisions !== 3 && candidate.divisions !== 6 : candidate.divisions === 1 || candidate.divisions === 3 || candidate.divisions === 6));
   }
 
-  private tryLock(): void {
-    const clean = this.opening.filter((hit) => !hit.ambiguous);
-    if (clean.length < 6 || clean.at(-1)!.time - clean[0].time < this.beatSeconds * 1.5) return;
-    // The first reliable attack is the beat-one anchor. The opening sequence
-    // estimates only a small phase correction, never a new tempo.
-    const seed = clean[0].time;
-    const fits = this.candidates.map((candidate) => {
-      const interval = this.beatSeconds / candidate.divisions;
-      const residuals = clean.map((hit) => this.error(hit.time, seed, interval));
-      const correction = median(residuals);
-      const errors = residuals.map((error) => error - correction);
-      const rmsMs = Math.sqrt(errors.reduce((total, value) => total + value * value, 0) / errors.length) * 1000;
-      return { candidate, correction, rmsMs, cost: rmsMs + candidate.complexity };
-    }).sort((a, b) => a.cost - b.cost);
-    const best = fits[0];
-    const toleranceMs = Math.min(32, this.beatSeconds * 80);
-    if (best.rmsMs > toleranceMs) return;
-    this.phaseOrigin = seed + best.correction;
-    this.lockConfidence = clamp(1 - best.rmsMs / (toleranceMs * 2), 0.5, 1);
-    this.preferred = best.candidate.name;
-    this.status = 'playing';
-    // Initial hits establish the reference; scoring them would manufacture accuracy.
-    this.context = clean.slice(-4);
-    this.opening = [];
-  }
-
   private advance(now: number, resolve = true): void {
     if (this.status === 'idle' || this.lastHit === null) return;
-    // Timeout is elapsed duration from the last attack, including during finding.
+    // Timeout is elapsed duration from the last accepted attack.
     if (now - this.lastHit >= this.beatSeconds * 4 - 1e-9) {
       if (this.pending.length) this.resolvePending(now);
       this.status = 'paused';
       this.phaseOrigin = null;
       this.lockConfidence = 0;
-      this.opening = [];
       this.context = [];
       return;
     }
@@ -272,7 +248,6 @@ export class TimingEngine {
     this.phaseOrigin = null;
     this.lockConfidence = 0;
     this.lastHit = null;
-    this.opening = [];
     this.pending = [];
     this.context = [];
     this.resolved = [];

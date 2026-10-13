@@ -1,5 +1,10 @@
 apply plugin: 'com.android.application'
 
+// Resolve before the DSL setters. A parenthesized expression after versionCode
+// is parsed as versionCode(...).toInteger(), and the setter returns null.
+def forgettimeVersionCode = (project.findProperty('forgettimeVersionCode') ?: '1').toInteger()
+def forgettimeVersionName = project.findProperty('forgettimeVersionName') ?: '0.1.0'
+
 android {
     namespace = "app.forgettime.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +12,8 @@ android {
         applicationId "app.forgettime.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode (project.findProperty('forgettimeVersionCode') ?: '1').toInteger()
-        versionName (project.findProperty('forgettimeVersionName') ?: '0.1.0')
+        versionCode forgettimeVersionCode
+        versionName forgettimeVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

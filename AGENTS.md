@@ -6,7 +6,7 @@ A timing practice app for drummers, sharing the Logmaster platform stack. Keep s
 
 - Preserve the supplied Tempo Meter Design: charcoal rounded card, large BPM, subdued typography, green centre band, stationary early/late hit lines.
 - Hit timestamps come from captured audio frames. UI, JavaScript callback arrival and wall-clock timing are never hit measurements.
-- Selected BPM and the reference phase stay fixed after opening-hit acquisition. Never track the player's drift to improve their score.
+- The first reliable transient above Start sensitivity establishes beat 1 immediately. Selected BPM and phase then stay fixed. Never track the player's drift to improve their score. Start sensitivity gates only starting/restarting; editing it must not reset an active reference or filter subsequent quieter hits.
 - In 4/4, pause only after four beats of elapsed silence measured from the last detected hit. Keep the beat clock alive during shorter pauses. Restart acquisition after a full-bar pause.
 - Every resolved scored hit gets an immutable line position and a one-second opacity animation. Presentation lifetime is separate from analysis time.
 - Sequence interpretation allows rests and fills. Ambiguous attacks do not receive an invented precise timing score.

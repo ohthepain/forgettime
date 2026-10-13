@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { usePreferences } from './preferences'
 
 describe('persisted practice preferences', () => {
-  beforeEach(() => { localStorage.clear(); usePreferences.setState({ bpm: 100, mode: 'auto' }) })
+  beforeEach(() => { localStorage.clear(); usePreferences.setState({ bpm: 100, mode: 'auto', startSensitivity: 50 }) })
 
   it.each([null, 0, -1, 301, '120', {}])('rejects malformed stored tempo %s without breaking the engine', async bpm => {
     localStorage.setItem('forgettime-preferences', JSON.stringify({ version: 1, state: { bpm, mode: 'unknown', setBpm: 'not a function' } }))
@@ -19,5 +19,29 @@ describe('persisted practice preferences', () => {
     expect(usePreferences.getState()).toMatchObject({ bpm: 135, mode: 'swing' })
     usePreferences.getState().setBpm(Number.NaN)
     expect(usePreferences.getState().bpm).toBe(135)
+    expect(usePreferences.getState().startSensitivity).toBe(50)
+  })
+
+  it('persists start sensitivity and clamps edits while ignoring invalid values', async () => {
+    usePreferences.getState().setStartSensitivity(73)
+    const saved = localStorage.getItem('forgettime-preferences')!
+    expect(JSON.parse(saved).state.startSensitivity).toBe(73)
+    usePreferences.setState({ startSensitivity: 50 }, false)
+    localStorage.setItem('forgettime-preferences', saved)
+    await usePreferences.persist.rehydrate()
+    expect(usePreferences.getState().startSensitivity).toBe(73)
+    usePreferences.getState().setStartSensitivity(150)
+    expect(usePreferences.getState().startSensitivity).toBe(100)
+    usePreferences.getState().setStartSensitivity(Number.NaN)
+    expect(usePreferences.getState().startSensitivity).toBe(100)
+    usePreferences.getState().setStartSensitivity(-1)
+    expect(usePreferences.getState().startSensitivity).toBe(0)
+  })
+
+  it.each([null, -1, 101, '80', {}])('rejects malformed saved sensitivity %s', async startSensitivity => {
+    localStorage.setItem('forgettime-preferences', JSON.stringify({ version: 1, state: { startSensitivity, setStartSensitivity: 'bad' } }))
+    await usePreferences.persist.rehydrate()
+    expect(usePreferences.getState().startSensitivity).toBe(50)
+    expect(typeof usePreferences.getState().setStartSensitivity).toBe('function')
   })
 })

@@ -47,3 +47,14 @@ After the user reported that distant traffic starts the detector, the browser/Ja
 - The earlier unannotated non-drum file produces 200 candidates versus 628 originally; its opening two seconds still produce 14 candidates versus 68 originally. This is reduced triggering, **not proof of accuracy**. See the recording report for the remaining limitations.
 
 No recording of the reported passing car was available. Real traffic, speech, room acoustics, microphone gain and quieter playing still need user/device checks. Sharply percussive background sounds can still resemble drum hits, and stronger rejection can miss very faint or overlapping attacks. In the original parity fixture, the revised detector emits 10 rather than 11 candidates; the separate two-attack flam regression still passes. Parity establishes identical behavior between ports, not perfect detection of every constructed attack.
+
+## First-transient start and settings
+
+The latest requested behavior replaces multi-hit acquisition: the first reliable onset above Start sensitivity defines beat 1 immediately, with no later phase correction. The top-right gear opens a panel containing only Start sensitivity, default 50%, saved locally. Sensitivity changes apply only to starting/restarting; an active beat and quieter follow-up hits are preserved.
+
+- All 84 tests and TypeScript checking passed. Coverage includes start thresholds at 0/50/100%, ignored weak candidates, immediate captured-time anchoring, persistence/legacy preference defaults, editing sensitivity without reopening capture, full-bar timeout and gated restart, drift and rhythmic interpretation. The production build passed on retry outside the restricted process sandbox after the first Vite process stalled.
+- Browser checks at 320, 393 and 1000 px confirmed the gear/header and panel fit without horizontal overflow, one setting control, persistence after reload, Escape dismissal with focus returned to the gear, and the beat continuing while settings are open.
+- Generated PCM through the actual browser AudioWorklet at 120 BPM and 50% sensitivity: a weak onset before the start left the app listening; the first strong onset displayed beat 1; a quieter follow-up produced a meter line; a full-bar silence paused the performance; another weak onset did not restart it; a strong onset restarted at beat 1. This is a synthetic integration check, not physical microphone accuracy validation.
+- Detector parity still passes for percussion, rumble and mixed fixtures at 44.1 and 48 kHz. The native audio plugin was not changed by this settings/startup change; both platforms receive the behavior through the shared UI/timing engine.
+
+Earlier “Finding beat” and opening-sequence results above are historical checks of the previous acquisition behavior.

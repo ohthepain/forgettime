@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { TimingEngine, type InterpretationMode } from './engine'
 import { createAudioCapture, type CaptureInfo } from './capture'
 import { Capacitor } from '@capacitor/core'
+import { DEFAULT_START_SENSITIVITY } from './start-sensitivity'
 
 type Source = 'off' | 'microphone' | 'simulation'
-export function usePractice(bpm: number, mode: InterpretationMode) {
-  const engine = useRef(new TimingEngine({ bpm, mode }))
+export function usePractice(bpm: number, mode: InterpretationMode, startSensitivity = DEFAULT_START_SENSITIVITY) {
+  const engine = useRef(new TimingEngine({ bpm, mode, startSensitivity }))
   const [snapshot, setSnapshot] = useState(() => engine.current.snapshot(0))
   const [source, setSource] = useState<Source>('off')
   const [busy, setBusy] = useState(false)
@@ -54,9 +55,9 @@ export function usePractice(bpm: number, mode: InterpretationMode) {
   }, [captureInfo])
 
   useEffect(() => {
-    engine.current.configure({ bpm, mode })
+    engine.current.configure({ bpm, mode, startSensitivity })
     setSnapshot(engine.current.snapshot(now.current))
-  }, [bpm, mode])
+  }, [bpm, mode, startSensitivity])
 
   useEffect(() => {
     const onVisibility = () => { if (document.hidden) void stop() }

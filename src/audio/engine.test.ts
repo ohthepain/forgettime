@@ -11,15 +11,19 @@ function locked(bpm = 120, mode: InterpretationMode = 'auto') {
 }
 
 describe('the locked musical reference', () => {
-  it('listens automatically, finds an opening reference, and does not score calibration hits', () => {
+  it('starts beat one on the first strong captured transient without scoring its own anchor', () => {
     const engine = new TimingEngine({ bpm: 120 });
     expect(engine.snapshot(0).status).toBe('idle');
     engine.start(0);
     expect(engine.snapshot(0).status).toBe('listening');
-    hit(engine, 1);
-    expect(engine.snapshot(1).status).toBe('finding');
-    for (const time of [1.5, 2, 2.5, 3, 3.5]) hit(engine, time);
-    expect(engine.snapshot(3.5)).toMatchObject({ status: 'playing', phaseOrigin: 1, hits: [] });
+    hit(engine, 1.123);
+    expect(engine.snapshot(1.123)).toMatchObject({ status: 'playing', phaseOrigin: 1.123, beat: 1, hits: [] });
+    hit(engine, 1.623);
+    const next = engine.snapshot(1.873);
+    expect(next.beat).toBe(2);
+    expect(next.hits).toHaveLength(1);
+    expect(next.hits[0].time).toBe(1.623);
+    expect(next.hits[0].errorMs).toBeCloseTo(0);
   });
 
   it('holds phase and selected BPM fixed when the drummer gradually drifts late', () => {
@@ -66,18 +70,46 @@ describe('the locked musical reference', () => {
     expect(engine.snapshot(4.49).phaseOrigin).toBe(0);
     expect(engine.snapshot(6.49).status).toBe('paused');
     hit(engine, 7.13);
-    expect(engine.snapshot(7.13)).toMatchObject({ status: 'finding', phaseOrigin: null, beat: null });
+    expect(engine.snapshot(7.13)).toMatchObject({ status: 'playing', phaseOrigin: 7.13, beat: 1, hits: [] });
     for (let i = 1; i < 6; i += 1) hit(engine, 7.13 + i * 0.5);
     expect(engine.snapshot(9.63).phaseOrigin).toBeCloseTo(7.13);
   });
 
-  it('does not lock a short burst or an incoherent opening', () => {
-    const engine = new TimingEngine({ bpm: 60, mode: 'straight' });
+  it('ignores weak starting candidates without shifting the eventual beat-one timestamp', () => {
+    const engine = new TimingEngine({ bpm: 120 });
     engine.start(0);
-    for (const time of [0, 0.11, 0.21, 0.33, 0.44, 0.53]) hit(engine, time);
-    expect(engine.snapshot(0.53).status).toBe('finding');
-    for (const time of [0.77, 1.12, 1.64, 1.81, 2.12, 2.39, 2.64]) hit(engine, time);
-    expect(engine.snapshot(2.64).status).toBe('finding');
+    for (const time of [0.1, 0.3, 0.8, 1.2, 2.6]) engine.addOnset({ time, strength: 0.08, confidence: 0.95 });
+    hit(engine, 3, 0.4);
+    expect(engine.snapshot(3)).toMatchObject({ status: 'listening', phaseOrigin: null, hits: [], pendingCount: 0 });
+    hit(engine, 3.21);
+    expect(engine.snapshot(3.21)).toMatchObject({ status: 'playing', phaseOrigin: 3.21, beat: 1 });
+  });
+
+  it.each([[0, 0.5], [50, 0.1], [100, 0.02]])('applies start sensitivity %i before beat one', (startSensitivity, threshold) => {
+    const engine = new TimingEngine({ bpm: 120, startSensitivity });
+    engine.start(0);
+    engine.addOnset({ time: 0.5, strength: threshold * 0.99, confidence: 0.95 });
+    expect(engine.snapshot(0.5).status).toBe('listening');
+    engine.addOnset({ time: 1, strength: threshold, confidence: 0.95 });
+    expect(engine.snapshot(1)).toMatchObject({ status: 'playing', beat: 1, phaseOrigin: 1 });
+  });
+
+  it('keeps quieter follow-up hits and the fixed clock when sensitivity changes, then gates the restart', () => {
+    const engine = new TimingEngine({ bpm: 120, startSensitivity: 100 });
+    engine.start(0);
+    engine.addOnset({ time: 1, strength: 0.04, confidence: 0.95 });
+    engine.configure({ startSensitivity: 0 });
+    engine.addOnset({ time: 1.5, strength: 0.03, confidence: 0.95 });
+    const playing = engine.snapshot(1.75);
+    expect(playing.phaseOrigin).toBe(1);
+    expect(playing.hits).toHaveLength(1);
+    expect(playing.hits[0].errorMs).toBeCloseTo(0);
+    expect(engine.snapshot(3.499).status).toBe('playing');
+    // The timeout is checked even if the next callback already contains a hit.
+    engine.addOnset({ time: 3.5, strength: 0.03, confidence: 0.95 });
+    expect(engine.snapshot(3.5)).toMatchObject({ status: 'paused', phaseOrigin: null, beat: null });
+    engine.addOnset({ time: 4, strength: 0.5, confidence: 0.95 });
+    expect(engine.snapshot(4)).toMatchObject({ status: 'playing', phaseOrigin: 4, beat: 1 });
   });
 
   it('resets the reference on tempo or interpretation edits, and stops completely on request', () => {
@@ -118,8 +150,9 @@ describe('rhythmic intention and uncertainty', () => {
     const engine = locked();
     for (const time of [3.01, 3.14, 3.26, 3.385, 3.515, 3.63]) hit(engine, time);
     const state = engine.snapshot(3.89);
-    expect(state.hits.every((item) => item.subdivision === 'sixteenth')).toBe(true);
-    const scored = state.hits.filter((item) => item.errorMs !== null);
+    const fill = state.hits.filter(item => item.time >= 3);
+    expect(fill.every((item) => item.subdivision === 'sixteenth')).toBe(true);
+    const scored = fill.filter((item) => item.errorMs !== null);
     expect(scored.some((item) => item.errorMs! > 12)).toBe(true);
   });
 
@@ -132,7 +165,7 @@ describe('rhythmic intention and uncertainty', () => {
       while (next < attackTimes.length && attackTimes[next] <= frame) hit(engine, attackTimes[next++]);
       for (const item of engine.snapshot(frame).hits) seen.set(item.id, item);
     }
-    const lines = [...seen.values()];
+    const lines = [...seen.values()].filter(item => item.time >= attackTimes[0]);
     expect(lines).toHaveLength(attackTimes.length);
     const later = lines.filter((item) => item.time >= 3.26);
     expect(later.every((item) => item.subdivision === 'sixteenth' && !item.uncertain)).toBe(true);
@@ -145,17 +178,17 @@ describe('rhythmic intention and uncertainty', () => {
     hit(engine, 3);
     hit(engine, 3.027);
     hit(engine, 3.5, 0.4);
-    const state = engine.snapshot(3.75);
-    expect(state.hits).toHaveLength(3);
-    expect(state.hits.every((item) => item.uncertain && item.errorMs === null)).toBe(true);
-    expect(state.hits[0].reason).toContain('Flam');
-    expect(state.hits[2].reason).toContain('Weak');
+    const hits = engine.snapshot(3.75).hits.filter(item => item.time >= 3);
+    expect(hits).toHaveLength(3);
+    expect(hits.every((item) => item.uncertain && item.errorMs === null)).toBe(true);
+    expect(hits[0].reason).toContain('Flam');
+    expect(hits[2].reason).toContain('Weak');
   });
 
   it('preserves resolved line positions while new patterns arrive and fades in precisely one second', () => {
     const engine = locked();
     hit(engine, 3.012);
-    const first = engine.snapshot(3.26).hits[0];
+    const first = engine.snapshot(3.26).hits.find(item => item.time === 3.012)!;
     expect(first.errorMs).toBeCloseTo(12);
     for (const time of [3.5, 3.6667, 3.8333]) hit(engine, time);
     expect(engine.snapshot(4).hits.find((item) => item.id === first.id)?.errorMs).toBe(first.errorMs);

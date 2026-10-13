@@ -4,7 +4,9 @@ Forgettime has three real capture implementations: Android `AudioRecord`, iOS `A
 
 ## Shared interface and clock
 
-`src/audio/capture.ts` exports `createAudioCapture({ onFrame, onError, onStopped, onDiscontinuity }, { deviceId? })`, with `start()` and `stop()` methods. `start()` must originate from a user action because browser audio activation and microphone permission require it. Once enabled, continuous capture allows the timing engine to start from opening hits and listen again after each automatic performance pause without another permission prompt. A browser `onDiscontinuity` callback invalidates the entire detector/beat reference while retaining the open stream; consumers must clear their timing engine before accepting subsequent frames.
+`src/audio/capture.ts` exports `createAudioCapture({ onFrame, onError, onStopped, onDiscontinuity }, { deviceId? })`, with `start()` and `stop()` methods. `start()` must originate from a user action because browser audio activation and microphone permission require it. Once enabled, continuous capture lets the first strong transient passing Start sensitivity establish beat 1, and listens again after each automatic performance pause without another permission prompt. A browser `onDiscontinuity` callback invalidates the entire detector/beat reference while retaining the open stream; consumers must clear their timing engine before accepting subsequent frames.
+
+Start sensitivity is applied in the shared timing engine to the captured onset strength, for both browser and native sources. It does not alter native capture, noise rejection or quieter follow-up hit detection. Adjusting it while playing leaves the current reference intact. It applies again after the full-bar timeout or interruption; see [timing behavior](audio-validation.md) for its threshold mapping.
 
 Each `onFrame` receives:
 

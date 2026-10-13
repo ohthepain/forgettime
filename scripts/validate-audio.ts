@@ -3,6 +3,7 @@ import { decodeWav } from './lib/wav';
 import { readFile } from 'node:fs/promises';
 import { TimingEngine, type InterpretationMode, type ResolvedHit } from '../src/audio/engine';
 import { OnsetDetector, type DetectedOnset } from '../src/audio/onset-detector';
+import { DEFAULT_START_SENSITIVITY } from '../src/audio/start-sensitivity';
 
 interface Annotation {
   description: string;
@@ -83,6 +84,7 @@ if (!wavPath || (!annotationPath && !exploratory)) {
     evaluation: annotation ? 'annotated-onset-comparison' : 'exploratory-unannotated',
     description: annotation?.description ?? 'Unannotated recording: detected candidates are not confirmed hits.',
     sampleRate, channels, durationSeconds, bpm, mode,
+    startSensitivity: DEFAULT_START_SENSITIVITY,
     fullBarSeconds: 240 / bpm,
     detectedCount: onsets.length,
     medianCandidateIntervalMs: intervals.length ? intervals[Math.floor(intervals.length / 2)] * 1000 : null,
@@ -102,7 +104,7 @@ if (!wavPath || (!annotationPath && !exploratory)) {
     uncertainCount: [...hits.values()].filter(hit => hit.uncertain).length,
     resolvedHits: [...hits.values()],
     note: annotation
-      ? 'Precision/recall compare onset annotations only. Rhythmic intent, perceived timing and device latency require separate review. Initial reference hits are not scored.'
+      ? 'Precision/recall compare onset annotations only. Rhythmic intent, perceived timing and device latency require separate review. The first qualifying hit anchors beat one and is not scored.'
       : 'No ground-truth attack annotations were provided. Counts and inferred timing describe algorithm behavior, not detection accuracy or the player’s timing. Silence is measured from detected candidates, which may be false positives.',
   }, null, 2));
 }

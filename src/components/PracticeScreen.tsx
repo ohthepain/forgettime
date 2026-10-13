@@ -1,20 +1,22 @@
 import { useEffect, useState } from 'react'
-import { AudioLines, CircleHelp, Mic, Square, UserRound } from 'lucide-react'
+import { AudioLines, CircleHelp, Mic, Settings, Square, UserRound } from 'lucide-react'
 import { usePreferences } from '../lib/preferences'
 import { usePractice } from '../audio/use-practice'
 import { usePresentedHits } from '../audio/use-presented-hits'
 import { AccountDialog } from './AccountDialog'
+import { SettingsDialog } from './SettingsDialog'
 import type { InterpretationMode } from '../audio/engine'
 
 const MODES: { value: InterpretationMode; label: string }[] = [
   { value: 'auto', label: 'Auto' }, { value: 'straight', label: 'Straight' }, { value: 'swing', label: 'Swing / triplet' },
 ]
 export function PracticeScreen() {
-  const { bpm, mode, setBpm, setMode } = usePreferences()
+  const { bpm, mode, startSensitivity, setBpm, setMode } = usePreferences()
   const [tempoText, setTempoText] = useState(String(bpm))
   const [accountOpen, setAccountOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
-  const practice = usePractice(bpm, mode)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const practice = usePractice(bpm, mode, startSensitivity)
   const { snapshot, source, busy, error } = practice
   const running = source !== 'off'
   const playing = snapshot.status === 'playing'
@@ -23,13 +25,13 @@ export function PracticeScreen() {
   useEffect(() => { void usePreferences.persist.rehydrate() }, [])
   useEffect(() => { setTempoText(String(bpm)) }, [bpm])
   const status = busy ? 'Opening microphone…' : snapshot.status === 'playing' ? `Playing · ${bpm} BPM locked`
-    : snapshot.status === 'finding' ? 'Finding beat…' : snapshot.status === 'paused' ? 'Paused · listening for you'
-    : snapshot.status === 'listening' ? 'Listening · start playing' : 'Your tempo. Your time.'
+    : snapshot.status === 'paused' ? 'Paused · listening for you'
+    : snapshot.status === 'listening' ? 'Listening · play your first hit' : 'Your tempo. Your time.'
   const latest = snapshot.hits.at(-1)
   const lastScored = [...snapshot.hits].reverse().find(hit => !hit.uncertain && hit.errorMs !== null)
   const detail = latest?.uncertain ? 'Uncertain attack' : lastScored?.errorMs !== undefined && lastScored.errorMs !== null
     ? Math.abs(lastScored.errorMs) < 5 ? 'Right in the pocket' : `${Math.abs(Math.round(lastScored.errorMs))} ms ${lastScored.errorMs < 0 ? 'ahead' : 'behind'}`
-    : playing ? 'Beat set' : snapshot.status === 'finding' ? 'Play a few steady hits' : snapshot.status === 'paused' ? 'Ready when you are' : 'Find your pocket'
+    : playing ? 'Beat set' : snapshot.status === 'paused' ? 'Ready when you are' : 'Find your pocket'
   function commitTempo() {
     const next = Number(tempoText)
     if (Number.isFinite(next) && next >= 30 && next <= 300) setBpm(next)
@@ -37,7 +39,7 @@ export function PracticeScreen() {
   }
   return <main className="app-shell">
     <header className="app-header"><a className="wordmark" href="/" aria-label="Forgettime home"><AudioLines size={21} strokeWidth={1.5} />forgettime<span className="wordmark-dot">.</span></a>
-      <div className="header-actions"><button className="icon-button" onClick={() => setHelpOpen(!helpOpen)} aria-label="How it works" aria-expanded={helpOpen}><CircleHelp size={19} /></button><button className="icon-button" onClick={() => setAccountOpen(true)} aria-label="Your account"><UserRound size={19} /></button></div>
+      <div className="header-actions"><button className="icon-button" onClick={() => setHelpOpen(!helpOpen)} aria-label="How it works" aria-expanded={helpOpen}><CircleHelp size={19} /></button><button className="icon-button" onClick={() => setAccountOpen(true)} aria-label="Your account"><UserRound size={19} /></button><button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label="Settings" aria-haspopup="dialog" aria-expanded={settingsOpen}><Settings size={19} /></button></div>
     </header>
     <section className="tempo-card" aria-label="Drum timing practice">
       <div className="card-heading"><h1>Tempo</h1><span className={source === 'simulation' ? 'practice-label demo-label' : 'practice-label'}>{source === 'simulation' ? 'SIMULATION' : 'MIC PRACTICE'}</span></div>
@@ -53,7 +55,7 @@ export function PracticeScreen() {
       <div className="timing-meter" role="img" aria-label="Timing meter. Early hits appear left, late hits right. Each line fades over one second.">
         <div className="centre-band" /><div className="centre-line" />
         {presented.hits.map(hit => <div key={hit.id} className={`hit-line ${Math.abs(hit.errorMs!) > 100 ? 'out-of-range' : ''}`} style={{ left: `${50 + Math.max(-100, Math.min(100, hit.errorMs!)) / 2}%` }} data-error-ms={hit.errorMs!.toFixed(2)} onAnimationEnd={() => presented.removeHit(hit.id)} />)}
-        <span className="meter-hint">{snapshot.status === 'finding' ? 'Finding your starting beat' : playing ? 'Stay with your time' : snapshot.status === 'paused' ? 'Play to begin again' : running ? 'Go ahead. Play.' : 'A little more in time, every time.'}</span>
+        <span className="meter-hint">{playing ? 'Stay with your time' : snapshot.status === 'paused' ? 'Play to begin again' : running ? 'Your first strong hit sets beat 1' : 'A little more in time, every time.'}</span>
       </div>
       <div className="meter-scale"><span>−100 ms</span><span>0</span><span>+100 ms</span></div>
       <div className="result-area"><p className={latest?.uncertain ? 'result uncertain' : 'result'}>{detail}</p><p className="result-note">{latest?.uncertain ? 'No timing score for this hit' : playing ? 'Reference stays fixed as you play' : 'Let your hands do the talking'}</p></div>
@@ -72,7 +74,8 @@ export function PracticeScreen() {
       {source === 'simulation' && <p className="source-note demo-label">Generated hits · microphone is off</p>}
     </section>
     <footer className="app-footer"><span>Listen to your own time.</span>{!running && <button onClick={() => void practice.simulate()} disabled={busy}>Try a simulation <span aria-hidden="true">↗</span></button>}</footer>
-    {helpOpen && <section className="help-panel"><h2>Make room for the groove.</h2><p>Choose a tempo, enable the microphone, then play. A few opening hits set your starting grid. The clock stays fixed, so drifting ahead or behind remains visible.</p><p>Auto considers straight and triplet rhythms across a short sequence. Straight uses eighths and sixteenths; Swing / triplet uses triplet subdivisions. Fills need a little interpretation time. Ambiguous attacks get no precise score.</p><p>The first reliable attack anchors beat 1; the microphone cannot know your intended downbeat. The counter continues through gaps shorter than a full bar. After a full bar without a hit, play again to establish a fresh beat.</p><p>Audio is analysed on your device and is never uploaded or saved. Quiet hits under cymbals may be missed. Device timing accuracy still needs real-world calibration. Changing tempo or interpretation starts a fresh reference.</p></section>}
+    {helpOpen && <section className="help-panel"><h2>Make room for the groove.</h2><p>Choose a tempo, enable the microphone, then play. Your first strong hit sets beat 1 immediately. The clock stays fixed, so drifting ahead or behind remains visible.</p><p>Auto considers straight and triplet rhythms across a short sequence. Straight uses eighths and sixteenths; Swing / triplet uses triplet subdivisions. Fills need a little interpretation time. Ambiguous attacks get no precise score.</p><p>Play the starting hit on your intended downbeat. The counter continues through gaps shorter than a full bar. After a full bar without a hit, another strong hit starts a fresh measure. Use Start sensitivity in Settings to choose how firmly you need to play to begin; it does not change detection during the performance.</p><p>Audio is analysed on your device and is never uploaded or saved. Quiet hits under cymbals may be missed. Device timing accuracy still needs real-world calibration. Changing tempo or interpretation starts a fresh reference.</p></section>}
     {accountOpen && <AccountDialog onClose={() => setAccountOpen(false)} />}
+    {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
   </main>
 }

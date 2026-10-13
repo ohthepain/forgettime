@@ -1,6 +1,6 @@
 # Forgettime
 
-A microphone timing meter for drummers. Choose a tempo, enable the microphone, and play. Opening hits establish a reference; tempo and phase then stay fixed. Early hits sit left, late hits right, and each resolved line fades over one second. The beat counter follows the locked 4/4 clock, including pauses shorter than a full bar.
+A microphone timing meter for drummers. Choose a tempo, enable the microphone, and play. The first strong transient establishes beat 1 immediately; tempo and phase then stay fixed. Early hits sit left, late hits right, and each resolved line fades over one second. The beat counter follows the locked 4/4 clock, including pauses shorter than a full bar.
 
 The charcoal card, large tempo, muted typography, rounded meter, and green centre band follow the supplied **Tempo Meter Design** screenshot. Auto, Straight, and Swing/triplet interpret short hit sequences. Ambiguous attacks get no precise score. The separate **Simulation** uses generated timestamps and does not access the microphone.
 
@@ -15,6 +15,8 @@ pnpm dev
 ```
 
 Open http://localhost:3030. Microphone practice works without an account or database. Browser microphone access requires HTTPS or localhost and AudioWorklet support. Audio stays on the device; the app neither uploads nor saves it.
+
+Open the gear at the top right for **Start sensitivity**. Lower values require a firmer first hit and help avoid accidental starts; higher values allow softer starting hits. The default is 50%, saved on this device. The setting applies again after a full-bar pause, but never moves an active reference or filters quieter follow-up hits. The underlying transient/noise detector remains active at every setting.
 
 On desktop, use the **Microphone** selector to choose your built-in or USB input. Device names may appear only after the first permission grant; stop listening, choose the input, then enable it again. The live-audio label shows the microphone actually in use. **Browser default** can select an iPhone Continuity microphone if that is the browser/system's preferred input. Brief browser input gaps clear the timing reference and resume listening automatically; actual captured silence still uses the full-bar pause rule. After updating capture code, reload the page to replace the running audio worklet.
 
@@ -79,6 +81,6 @@ See [audio validation](docs/audio-validation.md) for the annotated-WAV runner, f
 
 ## Current verification boundary
 
-The app has real microphone analysis code, not a simulation presented as recording. Synthetic fixtures verify invariants and native detector parity; they cannot establish accuracy with real drum kits, ghost notes masked by cymbals, room reflections or physical device latency. The opening sequence cannot determine an arbitrary musical downbeat: the first reliable attack anchors beat 1. Scoring includes a short interpretation delay, and low-confidence attacks are explicitly uncertain.
+The app has real microphone analysis code, not a simulation presented as recording. Synthetic fixtures verify invariants and native detector parity; they cannot establish accuracy with real drum kits, ghost notes masked by cymbals, room reflections or physical device latency. Play the starting hit on your intended downbeat: the first transient that passes Start sensitivity anchors beat 1. Scoring includes a short interpretation delay, and low-confidence attacks are explicitly uncertain.
 
 AWS resources have not been applied, no app has been published, and no Google/SES credentials have been configured. Native compilation is distinct from testing on physical microphones. See the validation documents for the measured checks and outstanding work.
