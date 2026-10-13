@@ -18,6 +18,7 @@ export function PracticeScreen() {
   const { snapshot, source, busy, error } = practice
   const running = source !== 'off'
   const playing = snapshot.status === 'playing'
+  const showBeat = running && playing && snapshot.beat !== null
   const presented = usePresentedHits(snapshot.hits, playing)
   useEffect(() => { void usePreferences.persist.rehydrate() }, [])
   useEffect(() => { setTempoText(String(bpm)) }, [bpm])
@@ -42,9 +43,9 @@ export function PracticeScreen() {
       <div className="card-heading"><h1>Tempo</h1><span className={source === 'simulation' ? 'practice-label demo-label' : 'practice-label'}>{source === 'simulation' ? 'SIMULATION' : 'MIC PRACTICE'}</span></div>
       <div className="tempo-row">
         <div className="bpm-control"><input id="bpm" aria-label="Tempo in beats per minute" inputMode="numeric" type="number" min={30} max={300} step={1} value={tempoText} disabled={busy || source === 'simulation'} onChange={event => setTempoText(event.target.value)} onBlur={commitTempo} onKeyDown={event => { if (event.key === 'Enter') { commitTempo(); event.currentTarget.blur() } }} /><label htmlFor="bpm">BPM</label></div>
-        <div className={`beat-counter ${playing ? 'is-visible' : ''}`} aria-hidden={!playing} aria-label={playing ? `Beat ${snapshot.beat} of 4` : undefined}>
-          <div className="beat-current"><span>{snapshot.beat ?? 1}</span><span className="beat-caption">BEAT<br />OF 4</span></div>
-          <div className="beat-dots">{[1, 2, 3, 4].map(beat => <i key={beat} className={snapshot.beat === beat ? 'active' : ''} />)}</div>
+        <div className={`beat-counter ${showBeat ? 'is-visible' : ''}`} role="timer" aria-live="off" aria-hidden={!showBeat} aria-label={showBeat ? `Beat ${snapshot.beat} of 4` : undefined}>
+          <div className="beat-current"><span className="beat-number">{snapshot.beat ?? '—'}</span><span className="beat-caption">BEAT<br />OF 4</span></div>
+          <div className="beat-dots" aria-hidden="true">{[1, 2, 3, 4].map(beat => <i key={beat} className={snapshot.beat === beat ? 'active' : ''} />)}</div>
         </div>
       </div>
       <p className="playing-status" role="status"><span className={`status-dot ${running ? 'active' : ''}`} />{status}</p>
@@ -57,11 +58,17 @@ export function PracticeScreen() {
       <div className="meter-scale"><span>−100 ms</span><span>0</span><span>+100 ms</span></div>
       <div className="result-area"><p className={latest?.uncertain ? 'result uncertain' : 'result'}>{detail}</p><p className="result-note">{latest?.uncertain ? 'No timing score for this hit' : playing ? 'Reference stays fixed as you play' : 'Let your hands do the talking'}</p></div>
       <div className="interpretation"><span className="small-label">INTERPRETATION</span><div className="mode-control" role="group" aria-label="Rhythm interpretation">{MODES.map(item => <button key={item.value} aria-pressed={mode === item.value} onClick={() => setMode(item.value)} disabled={busy || source === 'simulation'}>{item.label}</button>)}</div></div>
+      {practice.canSelectInput && <div className="microphone-control"><label className="small-label" htmlFor="microphone-input">MICROPHONE</label><select id="microphone-input" value={practice.deviceId} disabled={busy || running} onChange={event => practice.setDeviceId(event.target.value)}>
+        <option value="">Browser default</option>
+        {practice.inputDevices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}
+        {practice.deviceId && !practice.inputDevices.some(device => device.deviceId === practice.deviceId) && <option value={practice.deviceId}>Selected microphone (unavailable)</option>}
+      </select>{running && <span className="microphone-hint">Stop listening to change input</span>}</div>}
       {running ? <button className="primary-button stop-button" onClick={() => void practice.stop()}><Square size={15} fill="currentColor" />{source === 'simulation' ? 'Stop simulation' : 'Stop listening'}</button>
         : <button className="primary-button" disabled={busy} onClick={() => void practice.listen()}><Mic size={18} />{busy ? 'Opening microphone…' : 'Enable microphone'}</button>}
       {error && <p className="error-message" role="alert">{error}</p>}
+      {practice.captureNotice && <p className="capture-notice" role="status">{practice.captureNotice}</p>}
       <p className="pause-note">A full bar of silence to start fresh.<br />{(240 / bpm).toLocaleString(undefined, { maximumFractionDigits: 2 })} seconds at {bpm} BPM · 4/4</p>
-      {source === 'microphone' && <p className="source-note"><span className="input-level" aria-hidden="true"><i style={{ transform: `scaleX(${Math.min(1, practice.level * 4)})` }} /></span>{practice.captureInfo?.source === 'native' ? 'Native microphone' : 'Browser microphone'} · live audio</p>}
+      {source === 'microphone' && <p className="source-note"><span className="input-level" aria-hidden="true"><i style={{ transform: `scaleX(${Math.min(1, practice.level * 4)})` }} /></span>{practice.captureInfo?.source === 'native' ? 'Native microphone' : practice.captureInfo?.inputLabel || 'Browser microphone'} · live audio</p>}
       {source === 'simulation' && <p className="source-note demo-label">Generated hits · microphone is off</p>}
     </section>
     <footer className="app-footer"><span>Listen to your own time.</span>{!running && <button onClick={() => void practice.simulate()} disabled={busy}>Try a simulation <span aria-hidden="true">↗</span></button>}</footer>

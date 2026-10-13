@@ -34,6 +34,113 @@ beforeEach(() => {
 })
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+function webAudio() {
+  mocks.native = false
+  const track = {
+    stop: vi.fn(), muted: false, label: 'Mac microphone',
+    getSettings: () => ({ deviceId: 'mac' }),
+    onended: null as null | (() => void), onmute: null as null | (() => void), onunmute: null as null | (() => void),
+  }
+  const stream = { getTracks: () => [track], getAudioTracks: () => [track] }
+  const getUserMedia = vi.fn().mockResolvedValue(stream)
+  const close = vi.fn().mockResolvedValue(undefined)
+  const port = { onmessage: null as null | ((event: { data: unknown }) => void), close: vi.fn() }
+  vi.stubGlobal('isSecureContext', true)
+  vi.stubGlobal('AudioContext', class {
+    state = 'running'
+    sampleRate = 48000
+    resume = vi.fn().mockResolvedValue(undefined)
+    close = close
+    audioWorklet = { addModule: vi.fn().mockResolvedValue(undefined) }
+    createMediaStreamSource = () => ({ connect: vi.fn(), disconnect: vi.fn() })
+  })
+  vi.stubGlobal('AudioWorkletNode', class {
+    port = port
+    connect = vi.fn()
+    disconnect = vi.fn()
+  })
+  Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia } })
+  const emit = (data: unknown) => port.onmessage?.({ data })
+  const samples = (startFrame: number) => emit({ type: 'samples', startFrame, sampleRate: 48000, samples: new Float32Array(1024) })
+  return { track, getUserMedia, close, emit, samples }
+}
+
+describe('browser capture recovery', () => {
+  it('requests the selected input and returns the actual track identity', async () => {
+    const web = webAudio()
+    const capture = createAudioCapture({ onFrame: vi.fn() }, { deviceId: 'mac' })
+    await expect(capture.start()).resolves.toMatchObject({ inputLabel: 'Mac microphone', deviceId: 'mac' })
+    expect(web.getUserMedia).toHaveBeenCalledWith({ audio: {
+      deviceId: { exact: 'mac' }, channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false,
+    } })
+    await capture.stop()
+  })
+
+  it('resets the reference before resuming sample-clock frames without closing capture', async () => {
+    const web = webAudio()
+    const events: (number | 'reset')[] = []
+    const onError = vi.fn()
+    const capture = createAudioCapture({ onFrame: frame => events.push(frame.time), onDiscontinuity: () => events.push('reset'), onError })
+    await capture.start()
+    web.samples(48000)
+    web.emit({ type: 'gap' })
+    web.samples(96000)
+    expect(events).toEqual([expect.closeTo(49024 / 48000, 10), 'reset', expect.closeTo(97024 / 48000, 10)])
+    expect(web.close).not.toHaveBeenCalled()
+    expect(web.track.stop).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
+    await capture.stop()
+  })
+
+  it('handles a timestamp discontinuity even if the worklet gap message is missing', async () => {
+    const web = webAudio()
+    const reset = vi.fn()
+    const onFrame = vi.fn()
+    const capture = createAudioCapture({ onFrame, onDiscontinuity: reset })
+    await capture.start()
+    web.samples(48000)
+    web.samples(49024)
+    expect(reset).not.toHaveBeenCalled()
+    web.samples(240000)
+    expect(reset).toHaveBeenCalledOnce()
+    expect(onFrame.mock.calls.at(-1)?.[0].time).toBeCloseTo(241024 / 48000, 10)
+    await capture.stop()
+  })
+
+  it('does not treat a muted track as musical silence and recovers without reopening it', async () => {
+    const web = webAudio()
+    const onFrame = vi.fn()
+    const reset = vi.fn()
+    const capture = createAudioCapture({ onFrame, onDiscontinuity: reset })
+    await capture.start()
+    web.samples(48000)
+    web.track.muted = true
+    web.track.onmute?.()
+    web.samples(49024)
+    web.emit({ type: 'gap' })
+    expect(onFrame).toHaveBeenCalledOnce()
+    expect(reset).toHaveBeenCalledOnce()
+    web.track.muted = false
+    web.track.onunmute?.()
+    web.samples(96000)
+    expect(reset).toHaveBeenCalledOnce()
+    expect(onFrame).toHaveBeenCalledTimes(2)
+    expect(web.getUserMedia).toHaveBeenCalledOnce()
+    await capture.stop()
+  })
+
+  it('releases a disconnected input with an actionable error', async () => {
+    const web = webAudio()
+    const onError = vi.fn()
+    const capture = createAudioCapture({ onFrame: vi.fn(), onError })
+    await capture.start()
+    web.track.onended?.()
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('microphone disconnected') })))
+    expect(web.track.stop).toHaveBeenCalledOnce()
+    expect(web.close).toHaveBeenCalledOnce()
+  })
+})
+
 describe('capture lifecycle and clock contract', () => {
   it('preserves captured times and supplies clocks even when there are no hits', async () => {
     const onFrame = vi.fn()

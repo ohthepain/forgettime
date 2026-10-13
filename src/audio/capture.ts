@@ -6,6 +6,8 @@ export interface CaptureInfo {
   source: 'native' | 'web'
   sampleRate: number
   timestampQuality: 'hardware' | 'sample-clock'
+  inputLabel?: string
+  deviceId?: string
 }
 
 export interface CaptureFrame extends CaptureInfo {
@@ -21,6 +23,8 @@ export interface CaptureCallbacks {
   onFrame: (frame: CaptureFrame) => void
   onError?: (error: Error) => void
   onStopped?: (reason: string) => void
+  /** Missing browser input invalidates the reference, but need not close the mic. */
+  onDiscontinuity?: () => void
 }
 
 export interface AudioCapture {
@@ -29,7 +33,7 @@ export interface AudioCapture {
 }
 
 /** Foreground-only live capture. Native builds require the native plugin. */
-export function createAudioCapture(callbacks: CaptureCallbacks): AudioCapture {
+export function createAudioCapture(callbacks: CaptureCallbacks, options: { deviceId?: string } = {}): AudioCapture {
   let generation = 0
   let running = false
   let starting: Promise<CaptureInfo> | undefined
@@ -57,7 +61,12 @@ export function createAudioCapture(callbacks: CaptureCallbacks): AudioCapture {
     }
     source?.disconnect()
     source = undefined
-    stream?.getTracks().forEach((track) => track.stop())
+    stream?.getTracks().forEach((track) => {
+      track.onended = null
+      track.onmute = null
+      track.onunmute = null
+      track.stop()
+    })
     stream = undefined
     const closingContext = context
     context = undefined
@@ -149,6 +158,7 @@ export function createAudioCapture(callbacks: CaptureCallbacks): AudioCapture {
           if (!currentContext.audioWorklet) throw new Error('This browser does not support AudioWorklet microphone capture.')
           const acquiredStream = await navigator.mediaDevices.getUserMedia({ audio: {
             channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false,
+            ...(options.deviceId ? { deviceId: { exact: options.deviceId } } : {}),
           } })
           if (!current()) {
             acquiredStream.getTracks().forEach((track) => track.stop())
@@ -162,13 +172,24 @@ export function createAudioCapture(callbacks: CaptureCallbacks): AudioCapture {
             numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1], channelCount: 1,
           })
           let expectedFrame: number | undefined
-          worklet.port.onmessage = (event: MessageEvent<{ samples: Float32Array; startFrame: number; sampleRate: number }>) => {
+          let inputInterrupted = false
+          const resetInput = () => {
+            expectedFrame = undefined
+            detector.reset()
+            if (!inputInterrupted) callbacks.onDiscontinuity?.()
+            inputInterrupted = true
+          }
+          type WorkletMessage = { type: 'gap' } | { type: 'samples'; samples: Float32Array; startFrame: number; sampleRate: number }
+          worklet.port.onmessage = (event: MessageEvent<WorkletMessage>) => {
             if (!current()) return
+            if (event.data.type === 'gap') { resetInput(); return }
             const { samples, startFrame, sampleRate } = event.data
+            if (acquiredStream.getAudioTracks().some(track => track.muted)) return
             if (expectedFrame !== undefined && Math.abs(expectedFrame - startFrame) > 2) {
-              fail(new Error('Audio capture was interrupted. Tap Listen to establish a fresh timing reference.'))
-              return
+              // Keep listening, but never score a new clock against an old beat.
+              resetInput()
             }
+            inputInterrupted = false
             expectedFrame = startFrame + samples.length
             const time = startFrame / sampleRate
             const onsets = detector.process(samples, time, sampleRate)
@@ -181,14 +202,19 @@ export function createAudioCapture(callbacks: CaptureCallbacks): AudioCapture {
               source: 'web', timestampQuality: 'sample-clock',
             })
           }
-          worklet.onprocessorerror = () => { if (current()) fail(new Error('Microphone audio processing stopped. Tap Listen to restart.')) }
+          worklet.onprocessorerror = () => { if (current()) fail(new Error('Microphone audio processing stopped. Enable the microphone to restart.')) }
           acquiredStream.getAudioTracks().forEach((track) => {
-            track.onended = () => { if (current()) interrupt('microphone-disconnected') }
-            track.onmute = () => { if (current()) interrupt('microphone-unavailable') }
+            track.onended = () => { if (current()) fail(new Error('The microphone disconnected. Choose an available input and enable the microphone again.')) }
+            track.onmute = () => { if (current()) resetInput() }
+            track.onunmute = () => { if (current()) resetInput() }
           })
           source.connect(worklet)
           worklet.connect(currentContext.destination)
-          info = { source: 'web', sampleRate: currentContext.sampleRate, timestampQuality: 'sample-clock' }
+          const track = acquiredStream.getAudioTracks()[0]
+          info = {
+            source: 'web', sampleRate: currentContext.sampleRate, timestampQuality: 'sample-clock',
+            inputLabel: track?.label, deviceId: track?.getSettings().deviceId,
+          }
           currentContext.onstatechange = () => {
             if (current() && running && currentContext.state !== 'running') interrupt('audio-interrupted')
           }

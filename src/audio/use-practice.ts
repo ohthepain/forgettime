@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { TimingEngine, type InterpretationMode } from './engine'
 import { createAudioCapture, type CaptureInfo } from './capture'
+import { Capacitor } from '@capacitor/core'
 
 type Source = 'off' | 'microphone' | 'simulation'
 export function usePractice(bpm: number, mode: InterpretationMode) {
@@ -11,6 +12,10 @@ export function usePractice(bpm: number, mode: InterpretationMode) {
   const [error, setError] = useState<string | null>(null)
   const [captureInfo, setCaptureInfo] = useState<CaptureInfo | null>(null)
   const [level, setLevel] = useState(0)
+  const [captureNotice, setCaptureNotice] = useState<string | null>(null)
+  const [inputDevices, setInputDevices] = useState<MediaDeviceInfo[]>([])
+  const [canSelectInput, setCanSelectInput] = useState(false)
+  const [deviceId, setDeviceId] = useState('')
   const capture = useRef<ReturnType<typeof createAudioCapture> | null>(null)
   const generation = useRef(0)
   const animation = useRef(0)
@@ -26,9 +31,27 @@ export function usePractice(bpm: number, mode: InterpretationMode) {
     setBusy(false)
     setLevel(0)
     setCaptureInfo(null)
+    setCaptureNotice(null)
     setSnapshot(engine.current.snapshot(now.current))
     await previous?.stop()
   }, [])
+
+  useEffect(() => {
+    if (Capacitor.isNativePlatform() || !navigator.mediaDevices?.enumerateDevices) return
+    const media = navigator.mediaDevices
+    let active = true
+    setCanSelectInput(true)
+    const refresh = async () => {
+      try {
+        const devices = await media.enumerateDevices()
+        if (active) setInputDevices(devices.filter(device => device.kind === 'audioinput' && device.deviceId && device.deviceId !== 'default'))
+      } catch { /* Some embedded browsers allow capture but not device enumeration. */ }
+    }
+    void refresh()
+    media.addEventListener('devicechange', refresh)
+    return () => { active = false; media.removeEventListener('devicechange', refresh) }
+    // Refresh labels after microphone permission has been granted.
+  }, [captureInfo])
 
   useEffect(() => {
     engine.current.configure({ bpm, mode })
@@ -58,8 +81,17 @@ export function usePractice(bpm: number, mode: InterpretationMode) {
         if (generation.current !== activeGeneration) return
         now.current = frame.time
         for (const onset of frame.onsets) engine.current.addOnset(onset)
-        setSnapshot(engine.current.snapshot(frame.time))
+        const next = engine.current.snapshot(frame.time)
+        setSnapshot(next)
+        setCaptureNotice(notice => next.status === 'playing' ? null : notice ? 'Microphone input restored · play to set a fresh beat' : null)
         setLevel(frame.level)
+      },
+      onDiscontinuity: () => {
+        if (generation.current !== activeGeneration) return
+        engine.current.start(now.current)
+        setSnapshot(engine.current.snapshot(now.current))
+        setLevel(0)
+        setCaptureNotice('Microphone input interrupted · waiting for audio')
       },
       onError: message => {
         if (generation.current !== activeGeneration) return
@@ -69,7 +101,7 @@ export function usePractice(bpm: number, mode: InterpretationMode) {
       onStopped: () => {
         if (generation.current === activeGeneration) void stop()
       },
-    })
+    }, { deviceId })
     capture.current = audio
     try {
       const info = await audio.start()
@@ -79,12 +111,14 @@ export function usePractice(bpm: number, mode: InterpretationMode) {
       setSnapshot(engine.current.snapshot(now.current))
     } catch (cause) {
       if (generation.current !== activeGeneration) return
-      setError(cause instanceof Error ? cause.message : 'Microphone could not start. Check microphone permission and try again.')
+      setError(cause instanceof Error && (cause.name === 'OverconstrainedError' || cause.name === 'NotFoundError')
+        ? 'That microphone is unavailable. Choose another input and try again.'
+        : cause instanceof Error ? cause.message : 'Microphone could not start. Check microphone permission and try again.')
       await stop()
     } finally {
       if (generation.current === activeGeneration) setBusy(false)
     }
-  }, [stop])
+  }, [stop, deviceId])
 
   const simulate = useCallback(async () => {
     await stop()
@@ -112,5 +146,5 @@ export function usePractice(bpm: number, mode: InterpretationMode) {
     animation.current = requestAnimationFrame(tick)
   }, [bpm, stop])
 
-  return { snapshot, source, busy, error, captureInfo, level, listen, stop, simulate }
+  return { snapshot, source, busy, error, captureInfo, captureNotice, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
 }

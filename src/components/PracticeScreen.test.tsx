@@ -12,7 +12,8 @@ vi.mock('./AccountDialog', () => ({ AccountDialog: () => null }))
 function practice(): ReturnType<typeof usePractice> {
   return {
     snapshot: new TimingEngine({ bpm: 100 }).snapshot(0), source: 'off', busy: false,
-    error: null, captureInfo: null, level: 0,
+    error: null, captureInfo: null, captureNotice: null, level: 0,
+    inputDevices: [], canSelectInput: false, deviceId: '', setDeviceId: vi.fn(),
     listen: vi.fn().mockResolvedValue(undefined), stop: vi.fn().mockResolvedValue(undefined), simulate: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -60,6 +61,18 @@ describe('practice screen integration', () => {
     rerender(<PracticeScreen />)
     expect(screen.getByText('Native microphone · live audio')).toBeDefined()
     expect(screen.queryByText('Generated hits · microphone is off')).toBeNull()
+  })
+
+  it('lets the player select a browser input and shows which microphone is actually live', () => {
+    state = { ...state, canSelectInput: true, inputDevices: [{ deviceId: 'mac', label: 'MacBook Microphone', kind: 'audioinput' } as MediaDeviceInfo] }
+    const { rerender } = render(<PracticeScreen />)
+    const selector = screen.getByRole('combobox', { name: 'MICROPHONE' }) as HTMLSelectElement
+    fireEvent.change(selector, { target: { value: 'mac' } })
+    expect(state.setDeviceId).toHaveBeenCalledWith('mac')
+    state = { ...state, source: 'microphone', deviceId: 'mac', captureInfo: { source: 'web', sampleRate: 48000, timestampQuality: 'sample-clock', inputLabel: 'MacBook Microphone' } }
+    rerender(<PracticeScreen />)
+    expect(selector.disabled).toBe(true)
+    expect(screen.getByText('MacBook Microphone · live audio')).toBeDefined()
   })
 
   it('places early hits left, retains their mounted line through snapshot expiry, and draws no uncertain score', () => {

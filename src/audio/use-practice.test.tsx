@@ -56,6 +56,25 @@ describe('live timing integration', () => {
     expect(mocked.create).toHaveBeenCalledTimes(1)
   })
 
+  it('clears a locked reference on input loss and reacquires from captured audio without reopening', async () => {
+    const { result } = renderHook(() => usePractice(120, 'auto'))
+    await act(() => result.current.listen())
+    act(() => { for (let i = 0; i < 6; i++) frame(100 + i * 0.5, [100 + i * 0.5]) })
+    expect(result.current.snapshot.phaseOrigin).toBe(100)
+    act(() => callbacks.onDiscontinuity?.())
+    expect(result.current.snapshot).toMatchObject({ status: 'listening', phaseOrigin: null, beat: null, hits: [] })
+    expect(result.current.captureNotice).toContain('input interrupted')
+    expect(result.current.source).toBe('microphone')
+    act(() => frame(106.1, [106.1]))
+    expect(result.current.snapshot.status).toBe('finding')
+    expect(result.current.captureNotice).toContain('input restored')
+    act(() => { for (let i = 1; i < 6; i++) frame(106.1 + i * 0.5, [106.1 + i * 0.5]) })
+    expect(result.current.snapshot.phaseOrigin).toBe(106.1)
+    expect(result.current.captureNotice).toBeNull()
+    expect(mocked.create).toHaveBeenCalledOnce()
+    expect(stopCapture).not.toHaveBeenCalled()
+  })
+
   it('ignores stale frames and a delayed permission success after stop', async () => {
     let resolveStart!: (value: CaptureInfo) => void
     mocked.create.mockImplementation((value: CaptureCallbacks) => {

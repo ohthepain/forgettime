@@ -30,7 +30,74 @@ function detect(samples: Float32Array, blockSize = 128, origin = 0) {
   return onsets;
 }
 
+/** Synthetic pass-by rumble/hiss with a slow level change, not a real car recording. */
+function ambience(duration: number, frequency: number, amplitude = 0.04, alreadyPresent = false) {
+  const samples = new Float32Array(Math.round(duration * rate));
+  let seed = 97;
+  for (let i = 0; i < samples.length; i++) {
+    const time = i / rate;
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    const noise = seed / 2 ** 31 - 1;
+    const envelope = alreadyPresent ? 1 : Math.sin(Math.PI * time / duration) ** 2;
+    samples[i] = amplitude * envelope * (0.8 * Math.sin(2 * Math.PI * frequency * time) + 0.2 * noise);
+  }
+  return samples;
+}
+
 describe('captured-audio transient detection (synthetic fixtures)', () => {
+  it.each([25, 40, 60, 90, 160, 350])('ignores slowly passing %i Hz rumble instead of starting a performance', frequency => {
+    expect(detect(ambience(4, frequency))).toEqual([]);
+  });
+
+  it('does not manufacture an opening hit from background sound already present at activation', () => {
+    expect(detect(ambience(2, 45, 0.08, true))).toEqual([]);
+  });
+
+  it('rejects very low-level transients while retaining intentional quiet attacks', () => {
+    expect(detect(fixture(2, [0.2, 0.6, 1.1, 1.5].map(time => ({ time, amplitude: 0.008 }))))).toEqual([]);
+    const times = [0.2, 0.6, 1.1, 1.5];
+    const onsets = detect(fixture(2, times.map(time => ({ time, amplitude: 0.04 }))));
+    expect(onsets).toHaveLength(times.length);
+    times.forEach((time, i) => expect(Math.abs(onsets[i].time - time)).toBeLessThan(0.004));
+  });
+
+  it('detects hits including a quieter note over ongoing rumble without retriggering on the rumble', () => {
+    const times = [0.3, 0.8, 1.3, 1.425, 1.55, 1.8];
+    const samples = ambience(3, 45, 0.012, true);
+    const drums = fixture(3, times.map((time, i) => ({ time, amplitude: i === 3 ? 0.08 : 0.7 })));
+    for (let i = 0; i < samples.length; i++) samples[i] += drums[i];
+    const onsets = detect(samples);
+    expect(onsets).toHaveLength(times.length);
+    times.forEach((time, i) => expect(Math.abs(onsets[i].time - time)).toBeLessThan(0.004));
+  });
+
+  it('lets the full-bar timeout expire while non-percussive ambient noise continues', () => {
+    const engine = new TimingEngine({ bpm: 120 });
+    const detector = new OnsetDetector();
+    engine.start(0);
+    const times = [0.3, 0.8, 1.3, 1.8, 2.3, 2.8];
+    const samples = ambience(6, 45, 0.012, true);
+    const drums = fixture(6, times.map(time => ({ time, amplitude: 0.7 })));
+    for (let i = 0; i < samples.length; i++) samples[i] += drums[i];
+    let phase: number | null = null;
+    let lastHit = 0;
+    let pausedAt = 0;
+    for (let i = 0; i < samples.length; i += 128) {
+      for (const onset of detector.process(samples.subarray(i, i + 128), i / rate, rate)) {
+        lastHit = onset.time;
+        engine.addOnset(onset);
+      }
+      const time = detector.processedThrough ?? i / rate;
+      const snapshot = engine.snapshot(time);
+      if (snapshot.status === 'playing') phase ??= snapshot.phaseOrigin;
+      if (snapshot.status === 'paused') { pausedAt = time; break; }
+    }
+    expect(phase).toBeCloseTo(0.3, 2);
+    expect(lastHit).toBeCloseTo(2.8, 2);
+    expect(pausedAt - lastHit).toBeGreaterThanOrEqual(2);
+    expect(pausedAt - lastHit).toBeLessThan(2.004);
+  });
+
   it('detects a steady groove including quieter ghost notes using sample timestamps', () => {
     const times = [0.1, 0.35, 0.6, 0.725, 0.85, 1.1];
     const samples = fixture(1.5, times.map((time, i) => ({ time, amplitude: i === 3 ? 0.08 : 0.7 })));

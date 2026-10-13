@@ -15,6 +15,9 @@ public final class DrumOnsetDetector {
     private double lastOnsetTime = Double.NEGATIVE_INFINITY, recentPeak = 0;
     private boolean armed = true;
     private double processedThrough = 0;
+    private final double[] energyHistory = new double[12];
+    private int historyIndex = 0, historyCount = 0;
+    private double historyEnergy = 0;
 
     public double getProcessedThrough() { return processedThrough; }
 
@@ -30,17 +33,25 @@ public final class DrumOnsetDetector {
         processedThrough = windowTime + window.length / sampleRate;
         double energy = 0, peak = 0;
         for (double value : window) { energy += value * value; peak = Math.max(peak, Math.abs(value)); }
-        double rms = Math.sqrt(energy / window.length);
+        double meanEnergy = energy / window.length;
+        double rms = Math.sqrt(meanEnergy);
+        double backgroundRms = Math.sqrt(Math.max(0, historyEnergy) / Math.max(1, historyCount));
+        boolean backgroundReady = historyCount == energyHistory.length;
+        historyEnergy += meanEnergy - energyHistory[historyIndex];
+        energyHistory[historyIndex] = meanEnergy;
+        historyIndex = (historyIndex + 1) % energyHistory.length;
+        historyCount = Math.min(historyCount + 1, energyHistory.length);
         double previous = previousRms;
-        double floor = Math.max(0.0015, noiseFloor * 2.5);
+        double floor = Math.max(0.006, noiseFloor * 2.5);
         double rise = rms - previous;
         double ratio = rms / Math.max(previous, floor);
+        double contrast = rms / Math.max(backgroundRms, floor);
         if (rms < recentPeak * 0.7) armed = true;
         noiseFloor += (rms - noiseFloor) * (rms < noiseFloor ? 0.03 : 0.0005);
         previousRms = rms;
         recentPeak = Math.max(rms, recentPeak * 0.99);
         double elapsed = windowTime - lastOnsetTime;
-        if (elapsed < 0.018 || (!armed && ratio < 2.5) || rms < floor || rise < 0.002 || ratio < 1.55) return null;
+        if (!backgroundReady || elapsed < 0.018 || (!armed && ratio < 2.5) || rms < floor || rise < 0.002 || ratio < 1.55 || contrast < 1.8) return null;
         int offset = 0;
         double attackThreshold = Math.max(peak * 0.25, previous * 2);
         while (offset < window.length - 1 && Math.abs(window[offset]) < attackThreshold) offset++;

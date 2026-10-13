@@ -40,30 +40,43 @@ try {
         samples[start + n] += amplitude * decay * (Math.sin(2 * Math.PI * 173 * t) * 0.65 + noise() * 0.35)
       }
     }
-    const path = join(temporary, `fixture-${rate}.f32`)
-    writeFileSync(path, Buffer.from(samples.buffer))
-    const detector = new OnsetDetector()
-    const expected: DetectedOnset[] = []
-    let frame = 0
-    for (let chunk = 0; frame < samples.length; chunk++) {
-      const size = [127, 1024, 256, 381][chunk % 4]
-      const batch = samples.subarray(frame, Math.min(samples.length, frame + size))
-      expected.push(...detector.process(batch, frame / rate, rate))
-      frame += batch.length
-    }
-    assert.ok(expected.length >= 8, 'Fixture must exercise actual onset detections')
-    for (const [language, actual] of [
-      ['Java', parse(run('java', ['-cp', temporary, 'ParityRunner', path, String(rate)]))],
-      ['Swift', parse(run(join(temporary, 'swift-parity'), [path, String(rate)]))],
-    ] as const) {
-      assert.equal(actual.length, expected.length, `${language} onset count at ${rate} Hz`)
-      for (let i = 0; i < expected.length; i++) {
-        for (const field of ['time', 'strength', 'confidence'] as const) {
-          assert.ok(Math.abs(actual[i][field] - expected[i][field]) < 1e-10, `${language} ${field} onset ${i} at ${rate} Hz`)
-        }
+    function compare(name: string, pcm: Float32Array, silent = false) {
+      const path = join(temporary, `${name}-${rate}.f32`)
+      writeFileSync(path, Buffer.from(pcm.buffer))
+      const detector = new OnsetDetector()
+      const expected: DetectedOnset[] = []
+      let frame = 0
+      for (let chunk = 0; frame < pcm.length; chunk++) {
+        const size = [127, 1024, 256, 381][chunk % 4]
+        const batch = pcm.subarray(frame, Math.min(pcm.length, frame + size))
+        expected.push(...detector.process(batch, frame / rate, rate))
+        frame += batch.length
       }
-      console.log(`${language}: ${actual.length} detections match TypeScript at ${rate} Hz (time/strength/confidence)`)
+      if (silent) assert.equal(expected.length, 0, 'Synthetic ambience must not start a performance')
+      else assert.ok(expected.length >= 8, 'Fixture must exercise actual onset detections')
+      for (const [language, actual] of [
+        ['Java', parse(run('java', ['-cp', temporary, 'ParityRunner', path, String(rate)]))],
+        ['Swift', parse(run(join(temporary, 'swift-parity'), [path, String(rate)]))],
+      ] as const) {
+        assert.equal(actual.length, expected.length, `${language} ${name} onset count at ${rate} Hz`)
+        for (let i = 0; i < expected.length; i++) {
+          for (const field of ['time', 'strength', 'confidence'] as const) {
+            assert.ok(Math.abs(actual[i][field] - expected[i][field]) < 1e-10, `${language} ${name} ${field} onset ${i} at ${rate} Hz`)
+          }
+        }
+        console.log(`${language} ${name}: ${actual.length} detections match TypeScript at ${rate} Hz (time/strength/confidence)`)
+      }
     }
+    compare('percussion', samples)
+    const rumble = new Float32Array(samples.length)
+    const mixed = new Float32Array(samples.length)
+    for (let i = 0; i < rumble.length; i++) {
+      const time = i / rate
+      rumble[i] = 0.04 * (0.4 + 0.6 * Math.sin(Math.PI * time / 6) ** 2) * (0.8 * Math.sin(2 * Math.PI * 45 * time) + 0.2 * noise())
+      mixed[i] = samples[i] + rumble[i] * 0.3
+    }
+    compare('ambient-rumble', rumble, true)
+    compare('percussion-with-rumble', mixed)
   }
 } finally {
   rmSync(temporary, { recursive: true, force: true })

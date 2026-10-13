@@ -16,6 +16,8 @@ pnpm dev
 
 Open http://localhost:3030. Microphone practice works without an account or database. Browser microphone access requires HTTPS or localhost and AudioWorklet support. Audio stays on the device; the app neither uploads nor saves it.
 
+On desktop, use the **Microphone** selector to choose your built-in or USB input. Device names may appear only after the first permission grant; stop listening, choose the input, then enable it again. The live-audio label shows the microphone actually in use. **Browser default** can select an iPhone Continuity microphone if that is the browser/system's preferred input. Brief browser input gaps clear the timing reference and resume listening automatically; actual captured silence still uses the full-bar pause rule. After updating capture code, reload the page to replace the running audio worklet.
+
 For accounts, copy `.env.example` to `.env`, generate a unique `BETTER_AUTH_SECRET`, then:
 
 ```sh
