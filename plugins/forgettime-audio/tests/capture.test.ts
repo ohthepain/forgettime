@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   available: true,
   start: vi.fn(),
   stop: vi.fn(),
+  acknowledgeFrame: vi.fn(),
   callbacks: new Map<string, (event: unknown) => void>(),
   removed: [] as string[],
 }))
@@ -17,6 +18,7 @@ vi.mock('@capacitor/core', () => ({ Capacitor: {
 vi.mock('forgettime-audio', () => ({ ForgettimeAudio: {
   start: mocks.start,
   stop: mocks.stop,
+  acknowledgeFrame: mocks.acknowledgeFrame,
   addListener: async (name: string, callback: (event: unknown) => void) => {
     mocks.callbacks.set(name, callback)
     return { remove: async () => { mocks.removed.push(name); mocks.callbacks.delete(name) } }
@@ -28,8 +30,9 @@ beforeEach(() => {
   mocks.available = true
   mocks.callbacks.clear()
   mocks.removed = []
-  mocks.start.mockReset().mockResolvedValue({ sampleRate: 48000, timestampQuality: 'sample-clock' })
+  mocks.start.mockReset().mockResolvedValue({ sessionId: 'ios-1', sampleRate: 48000, timestampQuality: 'sample-clock' })
   mocks.stop.mockReset().mockResolvedValue(undefined)
+  mocks.acknowledgeFrame.mockReset().mockResolvedValue(undefined)
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
 })
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
@@ -37,7 +40,8 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 function webAudio(settings: MediaTrackSettings = {}, latency = { input: 0, base: 0, output: 0 }) {
   mocks.native = false
   const track = {
-    stop: vi.fn(), muted: false, label: 'Mac microphone',
+    stop: vi.fn(),
+  acknowledgeFrame: vi.fn(), muted: false, label: 'Mac microphone',
     getSettings: () => ({ deviceId: 'mac', latency: latency.input, ...settings }),
     onended: null as null | (() => void), onmute: null as null | (() => void), onunmute: null as null | (() => void),
   }
@@ -189,13 +193,73 @@ describe('browser capture recovery', () => {
 })
 
 describe('capture lifecycle and clock contract', () => {
+  it('waits for native session identity and discards queued prior-session audio without losing opening PCM', async () => {
+    let resolve!: (info: { sessionId: string; sampleRate: number; timestampQuality: string }) => void
+    mocks.start.mockImplementation(() => new Promise(done => { resolve = done }))
+    const onFrame = vi.fn()
+    const capture = createAudioCapture({ onFrame })
+    const starting = capture.start()
+    await vi.waitFor(() => expect(mocks.start).toHaveBeenCalledOnce())
+    const callback = mocks.callbacks.get('audioFrame')!
+    const frame = { sessionId: 'prior', time: 0, sampleRate: 48000, pcm: { startFrame: 0, samples: [0, 1.5, -1.25] },
+      onsets: [], level: 1, timestampQuality: 'sample-clock' }
+    callback(frame)
+    callback({ ...frame, sessionId: 'ios-1' })
+    expect(onFrame).not.toHaveBeenCalled()
+    resolve({ sessionId: 'ios-1', sampleRate: 48000, timestampQuality: 'sample-clock' })
+    await starting
+    expect(onFrame).toHaveBeenCalledOnce()
+    expect(onFrame.mock.calls[0][0].pcm.samples).toEqual(new Float32Array([0, 1.5, -1.25]))
+    callback({ ...frame, pcm: { startFrame: 3, samples: [0] } })
+    expect(onFrame).toHaveBeenCalledOnce()
+    await capture.stop()
+  })
+
+  it('retains native source PCM on its sample clock without replacing original detections', async () => {
+    const onFrame = vi.fn()
+    const capture = createAudioCapture({ onFrame })
+    await capture.start()
+    const samples = [0, 0.75, -0.5, 0.25]
+    const onsets = [{ time: 0.001, strength: 0.8, confidence: 0.9 }]
+    mocks.callbacks.get('audioFrame')!({ sessionId: 'ios-1', time: 0.002, sampleRate: 48000,
+      pcm: { startFrame: 96, samples }, onsets, level: 0.5, timestampQuality: 'hardware' })
+    expect(onFrame.mock.calls[0][0]).toMatchObject({ source: 'native', onsets,
+      pcm: { startFrame: 96, samples: new Float32Array(samples) } })
+    expect(onFrame.mock.calls[0][0].pcm.samples).toBeInstanceOf(Float32Array)
+    expect(mocks.acknowledgeFrame).toHaveBeenCalledWith({ sessionId: 'ios-1', endFrame: 100 })
+    await capture.stop()
+  })
+
+  it.each(['missing PCM', 'gap', 'rate change', 'invalid samples', 'oversized packet'])('stops native retention on %s without delivering fabricated audio', async problem => {
+    const onFrame = vi.fn()
+    const onError = vi.fn()
+    const capture = createAudioCapture({ onFrame, onError })
+    await capture.start()
+    const callback = mocks.callbacks.get('audioFrame')!
+    const first = { sessionId: 'ios-1', time: 0, sampleRate: 48000,
+      pcm: { startFrame: 0, samples: [0, 0.75, -0.5, 0.25] }, onsets: [], level: 0.5, timestampQuality: 'sample-clock' }
+    callback(first)
+    const next = { ...first, pcm: { startFrame: 4, samples: [0, 0, 0, 0] } }
+    if (problem === 'missing PCM') delete (next as { pcm?: unknown }).pcm
+    if (problem === 'gap') next.pcm.startFrame = 8
+    if (problem === 'rate change') next.sampleRate = 44100
+    if (problem === 'invalid samples') next.pcm.samples[0] = NaN
+    if (problem === 'oversized packet') next.pcm.samples = Array(16385).fill(0)
+    callback(next)
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce())
+    expect(onFrame).toHaveBeenCalledOnce()
+    expect(mocks.stop).toHaveBeenCalledOnce()
+    callback(first)
+    expect(onFrame).toHaveBeenCalledOnce()
+  })
+
   it('preserves captured times and supplies clocks even when there are no hits', async () => {
     const onFrame = vi.fn()
     const capture = createAudioCapture({ onFrame })
     await capture.start()
     const callback = mocks.callbacks.get('audioFrame')!
-    callback({ time: 2.25, onsets: [{ time: 2.125, strength: 0.8, confidence: 0.9 }], sampleRate: 48000, level: 0.5, timestampQuality: 'hardware' })
-    callback({ time: 4.25, onsets: [], sampleRate: 48000, level: 0, timestampQuality: 'hardware' })
+    callback({ sessionId: 'ios-1', pcm: { startFrame: 0, samples: [0] }, time: 2.25, onsets: [{ time: 2.125, strength: 0.8, confidence: 0.9 }], sampleRate: 48000, level: 0.5, timestampQuality: 'hardware' })
+    callback({ sessionId: 'ios-1', pcm: { startFrame: 1, samples: [0] }, time: 4.25, onsets: [], sampleRate: 48000, level: 0, timestampQuality: 'hardware' })
     expect(onFrame.mock.calls[0][0]).toMatchObject({ time: 2.25, onsets: [{ time: 2.125 }], source: 'native' })
     expect(onFrame.mock.calls[1][0]).toMatchObject({ time: 4.25, onsets: [] })
     await capture.stop()
