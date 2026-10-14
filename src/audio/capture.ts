@@ -152,9 +152,33 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
           if (!Capacitor.isPluginAvailable('ForgettimeAudio')) {
             throw new Error('This mobile build is missing the Forgettime audio plugin. Rebuild and sync the native app.')
           }
+          let nativeClock: { sessionId: string; sampleRate: number; endFrame: number } | undefined
           listeners.push(await ForgettimeAudio.addListener('audioFrame', (frame) => {
             if (!current()) return
-            callbacks.onFrame({ ...frame, source: 'native' })
+            const pcm = frame.pcm
+            if (!pcm || !frame.sessionId || typeof ForgettimeAudio.acknowledgeFrame !== 'function') {
+              fail(new Error('This native audio plugin cannot retain recordings. Rebuild and sync the native app.'))
+              return
+            }
+            if (!Number.isSafeInteger(pcm.startFrame) || pcm.startFrame < 0
+              || !Number.isFinite(frame.sampleRate) || frame.sampleRate <= 0
+              || !Array.isArray(pcm.samples) || !pcm.samples.length || pcm.samples.length > 16384
+              || !pcm.samples.every(sample => Number.isFinite(sample) && Math.abs(sample) <= 1)
+              || (nativeClock && (nativeClock.sessionId !== frame.sessionId
+                || nativeClock.sampleRate !== frame.sampleRate || nativeClock.endFrame !== pcm.startFrame))) {
+              fail(new Error('Native audio capture was interrupted or changed format. Your captured material is preserved; restart listening.'))
+              return
+            }
+            const endFrame = pcm.startFrame + pcm.samples.length
+            nativeClock = { sessionId: frame.sessionId, sampleRate: frame.sampleRate, endFrame }
+            callbacks.onFrame({ ...frame, source: 'native', pcm: {
+              startFrame: pcm.startFrame, samples: Float32Array.from(pcm.samples),
+            } })
+            if (current()) {
+              void ForgettimeAudio.acknowledgeFrame({ sessionId: frame.sessionId, endFrame }).catch(() => {
+                if (current()) fail(new Error('Native audio retention is unavailable. Rebuild and sync the native app.'))
+              })
+            }
           }))
           ensureCurrent()
           listeners.push(await ForgettimeAudio.addListener('captureError', ({ message }) => {
