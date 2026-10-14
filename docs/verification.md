@@ -1,3 +1,7 @@
+# Verification history
+
+The current recording/replay implementation is covered by [integrated workflow validation](recorded-workflow-validation.md). Entries below are historical snapshots; earlier references to missing recording support, multi-hit acquisition or an absent Android SDK do not describe the current implementation.
+
 # Initial implementation checks — 13 October 2026
 
 These results describe local checks, not a released application.

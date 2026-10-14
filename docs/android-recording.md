@@ -2,7 +2,7 @@
 
 Android capture now sends actual mono PCM16 input as signed samples with its original `startFrame` and `sampleRate`. The same samples feed the existing Java onset detector and 2 ms waveform envelopes before bridge delivery. The shared adapter converts the bridge array to `Float32Array`; neither callback arrival nor wall-clock time becomes a hit timestamp. Audio remains in device memory and is not uploaded or saved automatically.
 
-The shared take workflow retains opening context, fixed reference, original detections/results and all captured bars. Single capture releases the microphone after four beats of silence measured from the final accepted hit. Auto waits for another take and permits replacement of the previous unsaved take. Previous/next review releases capture and disables Auto. The existing 120-second take limit includes opening context (about 23 MB PCM at 48 kHz); it stops with a notice and preserves valid captured material. Playback is separate work in #10.
+The shared take workflow retains opening context, fixed reference, original detections/results and all captured bars. Single capture releases the microphone after four beats of silence measured from the final accepted hit. Auto waits for another take and permits replacement of the previous unsaved take. Previous/next review releases capture and disables Auto. The existing 120-second take limit includes opening context (about 23 MB PCM at 48 kHz); it stops with a notice and preserves valid captured material. Updated builds also support [native bar playback](android-replay.md).
 
 ## Resource and continuity limits
 
@@ -30,4 +30,6 @@ node --import tsx plugins/forgettime-audio/tests/validate-parity.ts
 
 Set `JAVA_HOME` and `PATH` for the intended installed JDK. This host used OpenJDK 23.0.2; its `openjdk@21` symlink also resolves to 23, so it is not evidence of a Java 21 run. The normal unit suite skips the opt-in native host workflow when `FORGETTIME_NATIVE_HOST_TESTS` is absent.
 
-**Not verified:** full Android app compilation (Android SDK absent; license acceptance/download not authorized), physical Android microphone recording/review, device permission/route transitions, timing under real bridge load, and representative acoustic drums. No Android device was attached. Host-generated PCM and Java compilation do not establish those results. The half-second backlog limit is intentionally fail-visible; its usability under actual device load still needs measurement.
+The integrated Android app now compiles with the approved isolated SDK; see [integrated validation](recorded-workflow-validation.md).
+
+**Not verified:** physical Android microphone recording/review, device permission/route transitions, timing under real bridge load, and representative acoustic drums. No Android device was attached. Host-generated PCM and Java compilation do not establish those results. The half-second backlog limit is intentionally fail-visible; its usability under actual device load still needs measurement.

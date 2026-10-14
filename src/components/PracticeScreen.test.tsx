@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { webcrypto } from 'node:crypto'
+import { importedMaterial } from '../audio/audio-import'
+import { createBarFiles, restoreBarFiles } from '../audio/bar-files'
 import { PracticeScreen } from './PracticeScreen'
 import { usePreferences } from '../lib/preferences'
 import { usePractice } from '../audio/use-practice'
@@ -198,4 +201,27 @@ it('reveals candidate decisions accessibly and commits detector controls separat
   fireEvent.click(screen.getByRole('button', { name: 'Reset detector defaults' }))
   expect(state.resetDetector).toHaveBeenCalled()
   expect(state.restartReplay).not.toHaveBeenCalled() // Visibility and candidate selection do not restart.
+})
+
+
+it('keeps unavailable original analysis distinct from zero detections after unpaired import and saved-bar restore', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  try {
+    const take = importedMaterial({ kind: 'setup', bpm: 120, file: { name: 'example.wav', size: 1, read: async () => new ArrayBuffer(0) }, audio: { samples: new Float32Array(96000), sampleRate: 48000, channels: 1 }, explanation: '' }, { bpm: 120, mode: 'straight', startSensitivity: 50 }, 0)
+    state = { ...practice(), recordedTake: take, reviewBar: recordedBar(take, 0), reviewBarCount: 1 }
+    vi.mocked(usePractice).mockImplementation(() => state)
+    const view = render(<PracticeScreen />)
+    expect(screen.getByText(/Original detections unavailable/)).toBeDefined()
+    expect(screen.queryByText(/0 original detected hits/)).toBeNull()
+    state = { ...state, replayState: { settings: { ...DEFAULT_DETECTOR_SETTINGS }, candidates: [], diagnosticsDropped: 0, metronomeActive: false, run: 1, iteration: 0, time: 0, progress: 0, snapshot: state.snapshot, onsets: [], results: [] } }
+    view.rerender(<PracticeScreen />)
+    const original = within(screen.getByRole('table', { name: 'Original and current timing comparison' })).getByRole('row', { name: /Original/ })
+    expect(original.textContent).toBe('OriginalUnavailableUnavailableUnavailable')
+    expect(screen.getByText('Original: analysis unavailable')).toBeDefined()
+    const restored = await restoreBarFiles(await createBarFiles(take, 0))
+    state = { ...state, recordedTake: restored, reviewBar: recordedBar(restored, 0), replayState: null }
+    view.rerender(<PracticeScreen />)
+    expect(screen.getByText(/Original detections unavailable/)).toBeDefined()
+    expect(screen.queryByText(/0 original detected hits/)).toBeNull()
+  } finally { vi.unstubAllGlobals() }
 })

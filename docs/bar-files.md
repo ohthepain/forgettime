@@ -2,7 +2,7 @@
 
 Browser Save bar on device commits only the selected bar. Audio and metadata live in the `bars` IndexedDB store; the saved-bars list lives in `index`. One readwrite transaction covers both stores. Success is reported only by transaction completion, never an individual write request. Duplicate IDs, quota failure and abort leave existing records intact. Saved bars survive replacement of the unsaved take and page restart. Browser storage can still be cleared or evicted by the browser; this is not a backup service.
 
-Each saved entry offers separate, explicit WAV and `.forget` downloads. Both use the same UUID filename stem. A download request cannot prove that the browser wrote the file: the UI says “download requested” and retains the local pair on cancellation/failure. Audio remains on-device unless the user explicitly downloads it. Native file adapters are a separate follow-up feature; browser ordinary-audio selection is described in [browser import](browser-import.md); no microphone is started by reopening a bar.
+Each saved entry offers separate, explicit WAV and `.forget` downloads. Both use the same UUID filename stem. A download request cannot prove that the browser wrote the file: the UI says “download requested” and retains the local pair on cancellation/failure. Audio remains on-device unless the user explicitly downloads it. Native apps provide a paired system share action and private local storage through [Android](android-bar-files.md) and [iOS](ios-files.md) file adapters; browser ordinary-audio selection is described in [browser import](browser-import.md); no microphone is started by reopening a bar.
 
 ## Interchange contract
 
@@ -36,4 +36,4 @@ Controller tests run real PCM through the detector and timing engine, then the r
 
 A Chromium check also verified real IndexedDB commit/reopen, page restart, duplicate rejection, and abort between pair/index writes: the aborted audio record was absent and the prior entry remained readable. This is browser persistence evidence, not physical-device or acoustic timing validation.
 
-The platform-neutral reference pair at `tests/fixtures/bar-files/float32-partial.{wav,forget}` was encoded independently with Python's IEEE Float32 packing. It contains signed zero, values outside [-1,1], missing analysis/diagnostics and a result presented after the partial clip. Browser and future native file adapters should consume these same bytes.
+The platform-neutral reference pair at `tests/fixtures/bar-files/float32-partial.{wav,forget}` was encoded independently with Python's IEEE Float32 packing. It contains signed zero, values outside [-1,1], missing analysis/diagnostics and a result presented after the partial clip. Browser, Java and Swift file workflow fixtures consume these same bytes.

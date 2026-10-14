@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { renderToString } from 'react-dom/server'
+import { hydrateRoot } from 'react-dom/client'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { PracticeScreen } from './PracticeScreen'
@@ -86,4 +88,50 @@ it('reveals real PCM candidates without moving existing hits or reopening captur
   expect(released).toBe(false)
   fireEvent.click(screen.getByRole('button', { name: 'Detection details' }))
   expect(view.container.querySelector('.waveform-candidate')).toBeNull()
+})
+
+
+it('hydrates the server screen before loading the browser saved library without rebuilding the page', async () => {
+  vi.stubGlobal('indexedDB', undefined)
+  const container = document.createElement('div')
+  container.innerHTML = renderToString(<PracticeScreen />)
+  document.body.append(container)
+  // IndexedDB is a browser-only system edge; it already contains one saved bar.
+  vi.stubGlobal('indexedDB', { open: () => {
+    const request: { result: unknown; onsuccess?: () => void } = { result: {
+      close() {}, transaction() {
+        const result = [{ id: 'kept', name: 'Saved practice', createdAt: 0, bpm: 110, complete: true, bytes: 128 }]
+        const transaction = { objectStore: () => ({ getAll: () => ({ result }) }), oncomplete: undefined as (() => void) | undefined }
+        queueMicrotask(() => transaction.oncomplete?.())
+        return transaction
+      },
+    } }
+    queueMicrotask(() => request.onsuccess?.())
+    return request
+  } })
+  const onRecoverableError = vi.fn()
+  let root!: ReturnType<typeof hydrateRoot>
+  try {
+    await act(async () => { root = hydrateRoot(container, <PracticeScreen />, { onRecoverableError }) })
+    expect(onRecoverableError).not.toHaveBeenCalled()
+    expect(container.textContent).toContain('Saved bars (1)')
+    expect(container.textContent).toContain('Saved practice')
+    expect(container.textContent).not.toContain('Local saved bars are unavailable')
+    expect(capture.create).not.toHaveBeenCalled()
+  } finally { await act(async () => root.unmount()); container.remove() }
+})
+
+
+it('enters review before inspecting completed Auto candidates while leaving active live inspection running', async () => {
+  render(<PracticeScreen />)
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Auto capture' })))
+  act(() => callbacks.onFrame({ ...info, time: 1, level: .8, onsets: [{ time: .1, strength: .8, confidence: .95 }], pcm: { startFrame: 0, samples: new Float32Array(48000) } }))
+  fireEvent.click(screen.getByRole('button', { name: 'Detection details' }))
+  expect(released).toBe(false)
+  act(() => callbacks.onFrame({ ...info, time: 3, level: 0, onsets: [], pcm: { startFrame: 48000, samples: new Float32Array(96000) } }))
+  expect(screen.getByRole('button', { name: 'Auto capture' }).getAttribute('aria-pressed')).toBe('true')
+  // The details panel is already open when live playing becomes review.
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Reset detector defaults' })))
+  expect(released).toBe(true)
+  expect(screen.getByRole('button', { name: 'Auto capture' }).getAttribute('aria-pressed')).toBe('false')
 })
