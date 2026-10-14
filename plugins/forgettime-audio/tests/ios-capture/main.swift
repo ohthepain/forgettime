@@ -75,3 +75,22 @@ for problem in ["gap", "rate", "invalid", "oversized"] {
     }
 }
 print("Swift capture rejects missing frames, format changes, invalid PCM and oversized input")
+
+let editable = NativeCaptureStream(sampleRate: 48000, sessionId: "settings", settings: try DetectorSettings(["minimumRms": 0.1]))
+func livePacket(_ start: Int64) throws -> NativeCaptureStream.Packet {
+    try editable.process(frameCount: 2688, sampleTime: 12000 + start, sampleRate: 48000, channelCount: 1) { _, frame in
+        frame >= 2560 ? (frame % 2 == 0 ? 0.04 : -0.04) : 0
+    }
+}
+let rejected = try livePacket(0)
+precondition(rejected.onsets.isEmpty)
+precondition((rejected.diagnostics["candidates"] as! [[String: Any]]).count == 1)
+editable.acknowledge(sessionId: "settings", endFrame: 2688)
+editable.configure(try DetectorSettings(["minimumRms": 0.001]))
+let accepted = try livePacket(2688)
+precondition(accepted.onsets.count == 1)
+precondition(abs(accepted.onsets[0].time - 5248.0 / 48000) < 1e-10)
+let candidate = (accepted.diagnostics["candidates"] as! [[String: Any]])[0]
+precondition(candidate["id"] as! Int == 2)
+precondition((candidate["settings"] as! [String: Any])["minimumRms"] as! Double == 0.001)
+print("Swift live settings change actual detection without resetting the source clock or candidate history")
