@@ -9,6 +9,7 @@ public final class ForgettimeAudioPlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "ForgettimeAudio"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "start", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "acknowledgeFrame", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setMetronome", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise)
     ]
@@ -29,7 +30,7 @@ public final class ForgettimeAudioPlugin: CAPPlugin, CAPBridgedPlugin {
         observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] event in
             guard let value = event.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
                   let reason = AVAudioSession.RouteChangeReason(rawValue: value),
-                  [.oldDeviceUnavailable, .newDeviceAvailable, .noSuitableRouteForCategory].contains(reason) else { return }
+                  [.oldDeviceUnavailable, .newDeviceAvailable, .noSuitableRouteForCategory, .routeConfigurationChange].contains(reason) else { return }
             self?.stopCapture(reason: "microphone-route-changed")
         })
         observers.append(center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
@@ -85,59 +86,52 @@ public final class ForgettimeAudioPlugin: CAPPlugin, CAPBridgedPlugin {
             capture = current
             input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self, weak current] buffer, when in
                 guard let current = current, current.isRunning else { return }
-                guard when.isSampleTimeValid, let samples = buffer.floatChannelData?[0] else {
-                    DispatchQueue.main.async { self?.captureFailed(current, message: "Microphone sample timestamps are unavailable. Restart listening.") }
+                guard when.isSampleTimeValid, buffer.format.commonFormat == .pcmFormatFloat32,
+                      let channels = buffer.floatChannelData else {
+                    current.cancel()
+                    DispatchQueue.main.async { self?.captureFailed(current, message: "Microphone sample timestamps or Float32 input are unavailable. Restart listening.") }
                     return
                 }
-                let startFrame = when.sampleTime
-                if let expected = current.nextSample, expected != startFrame {
-                    DispatchQueue.main.async { self?.captureFailed(current, message: "Audio capture was interrupted. Restart listening for a fresh reference.") }
-                    return
-                }
-                if current.originSample == nil { current.originSample = startFrame }
-                let relativeFrame = startFrame - (current.originSample ?? startFrame)
-                if when.isHostTimeValid {
-                    current.metronome.anchor(captureTime: Double(relativeFrame) / format.sampleRate,
-                        hostTime: AVAudioTime.seconds(forHostTime: when.hostTime))
-                }
-                let count = Int(buffer.frameLength)
-                current.nextSample = startFrame + AVAudioFramePosition(count)
-                var energy = 0.0
-                var onsets: [[String: Any]] = []
-                var waveform: [[String: Any]] = []
-                for i in 0..<count {
-                    let sample = Double(samples[i])
-                    energy += sample * sample
-                    if let point = current.waveform.process(sample: sample, time: Double(relativeFrame + Int64(i)) / format.sampleRate) {
-                        waveform.append(["time": point.time, "duration": point.duration, "min": point.min, "max": point.max])
+                do {
+                    let packet = try current.stream.process(frameCount: Int(buffer.frameLength), sampleTime: when.sampleTime,
+                        sampleRate: buffer.format.sampleRate, channelCount: Int(buffer.format.channelCount)) { channel, frame in
+                        buffer.format.isInterleaved ? channels[0][frame * buffer.stride + channel] : channels[channel][frame * buffer.stride]
                     }
-                    if let onset = current.detector.process(sample: sample, time: Double(relativeFrame + Int64(i)) / format.sampleRate) {
-                        onsets.append(["time": onset.time, "strength": onset.strength, "confidence": onset.confidence])
+                    let hardwareStart = when.isHostTimeValid ? AVAudioTime.seconds(forHostTime: when.hostTime) : nil
+                    if let hardwareStart = hardwareStart {
+                        current.metronome.anchor(captureTime: Double(packet.startFrame) / format.sampleRate, hostTime: hardwareStart)
                     }
-                }
-                var event: [String: Any] = [
-                    "time": current.detector.processedThrough,
-                    "sampleRate": format.sampleRate,
-                    "level": min(1, sqrt(energy / Double(max(1, count)))),
-                    "onsets": onsets,
-                    "waveform": waveform,
-                    "metronomeAvailable": current.metronome.available,
-                    "timestampQuality": when.isHostTimeValid ? "hardware" : "sample-clock"
-                ]
-                if when.isHostTimeValid {
-                    event["hardwareTime"] = AVAudioTime.seconds(forHostTime: when.hostTime)
-                        + current.detector.processedThrough - Double(relativeFrame) / format.sampleRate
-                }
-                DispatchQueue.main.async {
-                    guard let self = self, self.capture === current, current.isRunning else { return }
-                    self.notifyListeners("audioFrame", data: event)
+                    // Serialization and bridge delivery occur off the realtime tap. NativeCaptureStream
+                    // bounds unacknowledged source audio even if the web view stops consuming events.
+                    DispatchQueue.main.async {
+                        guard let self = self, self.capture === current, current.isRunning else { return }
+                        var event: [String: Any] = [
+                            "sessionId": current.stream.sessionId,
+                            "time": packet.time,
+                            "sampleRate": format.sampleRate,
+                            "pcm": ["startFrame": packet.startFrame, "samples": packet.samples],
+                            "level": packet.level,
+                            "onsets": packet.onsets.map { ["time": $0.time, "strength": $0.strength, "confidence": $0.confidence] },
+                            "waveform": packet.waveform.map { ["time": $0.time, "duration": $0.duration, "min": $0.min, "max": $0.max] },
+                            "metronomeAvailable": current.metronome.available,
+                            "timestampQuality": hardwareStart != nil ? "hardware" : "sample-clock"
+                        ]
+                        if let hardwareStart = hardwareStart {
+                            event["hardwareTime"] = hardwareStart + packet.time - Double(packet.startFrame) / format.sampleRate
+                        }
+                        self.notifyListeners("audioFrame", data: event)
+                    }
+                } catch {
+                    // Invalidate immediately: a stalled main queue must not accumulate repeated errors.
+                    current.cancel()
+                    DispatchQueue.main.async { self?.captureFailed(current, message: error.localizedDescription) }
                 }
             }
             current.tapInstalled = true
             engine.prepare()
             try engine.start()
             pendingStart = nil
-            call.resolve(["sampleRate": format.sampleRate, "timestampQuality": "sample-clock"])
+            call.resolve(["sessionId": current.stream.sessionId, "sampleRate": format.sampleRate, "timestampQuality": "sample-clock"])
         } catch {
             pendingStart = nil
             stopCapture(reason: "error")
@@ -155,6 +149,15 @@ public final class ForgettimeAudioPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc public func stop(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             self.stopCapture(reason: "stopped")
+            call.resolve()
+        }
+    }
+
+    @objc public func acknowledgeFrame(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            if let sessionId = call.getString("sessionId"), let endFrame = call.getInt("endFrame") {
+                self.capture?.stream.acknowledge(sessionId: sessionId, endFrame: Int64(endFrame))
+            }
             call.resolve()
         }
     }
@@ -193,11 +196,8 @@ public final class ForgettimeAudioPlugin: CAPPlugin, CAPBridgedPlugin {
 
 private final class AudioCaptureSession {
     let engine: AVAudioEngine
-    let detector: DrumOnsetDetector
-    let waveform: WaveformEnvelopeCapture
+    let stream: NativeCaptureStream
     let metronome = MetronomeOutput()
-    var originSample: AVAudioFramePosition?
-    var nextSample: AVAudioFramePosition?
     var tapInstalled = false
     private let lock = NSLock()
     private var running = true
@@ -208,14 +208,16 @@ private final class AudioCaptureSession {
     }
     init(engine: AVAudioEngine, sampleRate: Double) {
         self.engine = engine
-        self.detector = DrumOnsetDetector(sampleRate: sampleRate)
-        self.waveform = WaveformEnvelopeCapture(sampleRate: sampleRate)
+        self.stream = NativeCaptureStream(sampleRate: sampleRate)
     }
-    func stop() {
-        metronome.update(nil)
+    func cancel() {
         lock.lock()
         running = false
         lock.unlock()
+    }
+    func stop() {
+        metronome.update(nil)
+        cancel()
         engine.stop()
         if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
     }
