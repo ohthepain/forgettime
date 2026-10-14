@@ -1,3 +1,4 @@
+import { createNativeBarFiles } from './native-files'
 import { browserAudioImport, prepareAudioImport, decodeImportAudio, importedMaterial, type ImportFile, type ImportState } from './audio-import'
 import { createBarFiles, restoreBarFiles } from './bar-files'
 import { createBrowserSavedBars, requestBrowserDownload, type BarFileOptions, type SavedBarSummary } from './saved-bars'
@@ -17,13 +18,15 @@ export type CaptureMode = 'single' | 'auto'
 import { TakeRecorder, recordedBar, recordedBarCount, initialReviewBar, type RecordedTake, type TakeEndReason } from './recorded-take'
 type Source = 'off' | 'microphone' | 'simulation' | 'replay'
 export function usePractice(bpm: number, mode: InterpretationMode, startSensitivity = DEFAULT_START_SENSITIVITY, metronomeOptions = DEFAULT_METRONOME, fileOptions: BarFileOptions = {}) {
-  const importer = useRef(fileOptions.importer ?? browserAudioImport)
+  const platformFiles = useMemo(() => Capacitor.isNativePlatform() ? createNativeBarFiles() : {}, [])
+  const importer = useRef(fileOptions.importer ?? platformFiles.importer ?? browserAudioImport)
+  const pairedExport = useRef(fileOptions.exportPair ?? platformFiles.exportPair)
   const [importState, setImportState] = useState<ImportState | null>(null)
   const [importBusy, setImportBusy] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
   const [importNotice, setImportNotice] = useState<string | null>(null)
   const importGeneration = useRef(0)
-  const repository = useRef(fileOptions.savedBars ?? (!Capacitor.isNativePlatform() && typeof indexedDB !== 'undefined' ? createBrowserSavedBars() : undefined))
+  const repository = useRef(fileOptions.savedBars ?? platformFiles.savedBars ?? (!Capacitor.isNativePlatform() && typeof indexedDB !== 'undefined' ? createBrowserSavedBars() : undefined))
   const download = useRef(fileOptions.exportFile ?? requestBrowserDownload)
   const [savedBars, setSavedBars] = useState<SavedBarSummary[]>([])
   const libraryOperation = useRef(0)
@@ -437,7 +440,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
       const files = await createBarFiles(recordedTake, reviewBarIndex)
       const bar = recordedBar(recordedTake, reviewBarIndex), id = crypto.randomUUID()
       await repository.current.save({ ...files, id, name: `Bar ${reviewBarIndex + 1} · ${recordedTake.settings.bpm} BPM`, createdAt: Date.now(), bpm: recordedTake.settings.bpm, complete: bar.complete, bytes: files.wav.byteLength + new TextEncoder().encode(files.sidecar).length })
-      setSavedBars(await repository.current.list()); setLibraryNotice('Bar saved on this device. WAV and .forget downloads are separate actions.')
+      setSavedBars(await repository.current.list()); setLibraryNotice(pairedExport.current ? 'Bar saved on this device. Export both files for a portable copy.' : 'Bar saved on this device. WAV and .forget downloads are separate actions.')
     } catch (cause) { setLibraryError(cause instanceof Error ? cause.message : 'Local save failed.') }
     finally { setLibraryBusy(false) }
   }, [recordedTake, reviewBarIndex, libraryBusy])
@@ -453,6 +456,16 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
     } catch (cause) { if (generation.current === activeGeneration) setLibraryError(cause instanceof Error ? cause.message : 'Saved bar could not be opened.') }
     finally { if (libraryOperation.current === operation) setLibraryBusy(false) }
   }, [stop, installMaterial])
+  const exportSavedPair = useCallback(async (id: string) => {
+    if (!repository.current || !pairedExport.current || libraryBusy) return
+    setLibraryBusy(true); setLibraryError(null); setLibraryNotice(null)
+    try {
+      await restoreBarFiles(await repository.current.read(id))
+      const status = await pairedExport.current(id)
+      setLibraryNotice(status === 'cancelled' ? 'Export cancelled. The local saved pair is retained.' : 'Both files were offered to the system share sheet. Check your chosen destination; the local pair is retained.')
+    } catch (cause) { setLibraryError(`${cause instanceof Error ? cause.message : 'Export failed.'} The local saved pair is retained.`) }
+    finally { setLibraryBusy(false) }
+  }, [libraryBusy])
   const exportSavedFile = useCallback(async (id: string, extension: 'wav' | 'forget') => {
     if (!repository.current || libraryBusy) return
     setLibraryBusy(true); setLibraryError(null); setLibraryNotice(null)
@@ -465,5 +478,5 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
     finally { setLibraryBusy(false) }
   }, [libraryBusy])
 
-  return { importState, importBusy, importError, importNotice, beginImport, cancelImport, importFiles, chooseImportFiles, useImportAudioOnly, confirmImport, nativeImportPicker: Boolean(importer.current.pick), savedBars, libraryBusy, libraryError, libraryNotice, savedBarsSupported: Boolean(repository.current), saveSelectedBar, openSavedBar, exportSavedFile, openRecordedMaterial, liveDiagnostics, detectorSettings, configureDetector, resetDetector, detectorSettingsSupported: !Capacitor.isNativePlatform() || Boolean(captureInfo?.diagnosticsSupported || replayState), playBar, restartReplay, replayState, recordedTake, reviewBar, reviewBarIndex, reviewBarCount, previousBar, nextBar, reviewCurrentBar, recordingNotice, snapshot, captureTime: now.current, waveform, waveformSource, source, captureMode, busy, error, captureInfo, captureNotice, outputNotice, metronomeActive, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
+  return { exportSavedPair, pairedExportSupported: Boolean(pairedExport.current), importState, importBusy, importError, importNotice, beginImport, cancelImport, importFiles, chooseImportFiles, useImportAudioOnly, confirmImport, nativeImportPicker: Boolean(importer.current.pick), savedBars, libraryBusy, libraryError, libraryNotice, savedBarsSupported: Boolean(repository.current), saveSelectedBar, openSavedBar, exportSavedFile, openRecordedMaterial, liveDiagnostics, detectorSettings, configureDetector, resetDetector, detectorSettingsSupported: !Capacitor.isNativePlatform() || Boolean(captureInfo?.diagnosticsSupported || replayState), playBar, restartReplay, replayState, recordedTake, reviewBar, reviewBarIndex, reviewBarCount, previousBar, nextBar, reviewCurrentBar, recordingNotice, snapshot, captureTime: now.current, waveform, waveformSource, source, captureMode, busy, error, captureInfo, captureNotice, outputNotice, metronomeActive, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
 }

@@ -115,3 +115,18 @@ it('never reports save success before durable commit and leaves previous saved b
   await act(() => hook.result.current.openSavedBar(id))
   expect(hook.result.current.reviewBarCount).toBe(1)
 })
+it('validates a saved pair before presenting both files to the native chooser and reports cancellation', async () => {
+  const repository = storage(), exportPair = vi.fn().mockResolvedValue('cancelled')
+  const captured = await captureBar(repository, 48000)
+  await act(() => captured.result.current.saveSelectedBar())
+  const id = captured.result.current.savedBars[0].id
+  captured.unmount()
+  const hook = renderHook(() => usePractice(120, 'auto', 50, undefined, { savedBars: repository, exportPair }))
+  await act(() => hook.result.current.exportSavedPair(id))
+  expect(exportPair).toHaveBeenCalledWith(id)
+  expect(hook.result.current.libraryNotice).toMatch(/cancelled.*retained/i)
+  const corrupt = await repository.read(id); corrupt.sidecar = '{}'; await repository.save(corrupt)
+  await act(() => hook.result.current.exportSavedPair(id))
+  expect(exportPair).toHaveBeenCalledOnce()
+  expect(hook.result.current.libraryError).toBeTruthy()
+})
