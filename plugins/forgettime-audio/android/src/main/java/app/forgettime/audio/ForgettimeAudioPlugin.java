@@ -182,6 +182,7 @@ public class ForgettimeAudioPlugin extends Plugin {
             if (capture.running && session == capture) {
                 JSObject event = new JSObject();
                 event.put("message", error.getMessage());
+                event.put("sessionId", capture.id);
                 notifyListeners("captureError", event);
             }
         } finally {
@@ -250,6 +251,7 @@ public class ForgettimeAudioPlugin extends Plugin {
             }
             JSObject event = new JSObject();
             event.put("reason", reason);
+            event.put("sessionId", capture.id);
             notifyListeners("captureStopped", event);
         }
     }

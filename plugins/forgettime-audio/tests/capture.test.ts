@@ -203,6 +203,8 @@ describe('capture lifecycle and clock contract', () => {
     const callback = mocks.callbacks.get('audioFrame')!
     const frame = { sessionId: 'prior', time: 0, sampleRate: 48000, pcm: { startFrame: 0, samples: [0, 1.5, -1.25] },
       onsets: [], level: 1, timestampQuality: 'sample-clock' }
+    mocks.callbacks.get('captureError')!({ sessionId: 'prior', message: 'old error' })
+    mocks.callbacks.get('captureStopped')!({ sessionId: 'prior', reason: 'audio-interrupted' })
     callback(frame)
     callback({ ...frame, sessionId: 'ios-1' })
     expect(onFrame).not.toHaveBeenCalled()
@@ -210,6 +212,8 @@ describe('capture lifecycle and clock contract', () => {
     await starting
     expect(onFrame).toHaveBeenCalledOnce()
     expect(onFrame.mock.calls[0][0].pcm.samples).toEqual(new Float32Array([0, 1.5, -1.25]))
+    mocks.callbacks.get('captureError')!({ sessionId: 'prior', message: 'old error' })
+    mocks.callbacks.get('captureStopped')!({ sessionId: 'prior', reason: 'audio-interrupted' })
     callback({ ...frame, pcm: { startFrame: 3, samples: [0] } })
     expect(onFrame).toHaveBeenCalledOnce()
     await capture.stop()
