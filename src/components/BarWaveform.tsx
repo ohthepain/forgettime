@@ -9,7 +9,7 @@ export function BarWaveform({ waveform, source, status, startSensitivity, review
   source: 'off' | 'microphone' | 'simulation' | 'replay'
   status: TrackingStatus
   startSensitivity: number
-  review?: { index: number; count: number; availableFraction: number; interrupted: boolean; previous: () => void; next: () => void; select: () => void; loop?: () => void; canLoop?: boolean }
+  review?: { originalAvailable?: boolean; index: number; count: number; availableFraction: number; interrupted: boolean; previous: () => void; next: () => void; select: () => void; loop?: () => void; canLoop?: boolean }
   diagnostics?: { candidates: InspectableCandidate[]; selectedId?: number; select: (candidate: InspectableCandidate) => void }
   comparison?: { current: boolean; select: (current: boolean) => void }
 }) {
@@ -66,7 +66,7 @@ export function BarWaveform({ waveform, source, status, startSensitivity, review
     <p className="waveform-note">Detected hits · colour shows input strength</p>
     {hasReference && <p className="waveform-note waveform-threshold-note">Dashed lines: start level · {Math.round(threshold * 100)}% input peak.<br />Only gates the first hit; transient checks also apply.</p>}
     {review?.interrupted && <p className="waveform-note">Input interrupted · this take ends before the gap.</p>}
-    {review && <p className="waveform-note">{waveform.hits.length} {comparison?.current ? 'current-loop' : 'original'} detected hits · {waveform.review === 'partial' ? 'partial recorded bar' : 'complete recorded bar'}. {review.availableFraction < 1 ? 'Shaded area was not recorded. Looping needs a complete bar.' : ''}</p>}
+    {review && <p className="waveform-note">{!comparison?.current && review.originalAvailable === false ? 'Original detections unavailable' : `${waveform.hits.length} ${comparison?.current ? 'current-loop' : 'original'} detected hits`} · {waveform.review === 'partial' ? 'partial recorded bar' : 'complete recorded bar'}. {review.availableFraction < 1 ? 'Shaded area was not recorded. Looping needs a complete bar.' : ''}</p>}
     {held && !review && <p className="waveform-note">{waveform.review === 'complete' ? `${waveform.hits.length} detected hits · last complete bar before your final hit.` : 'Short take · play through a full bar for a complete review.'}</p>}
   </section>
 }

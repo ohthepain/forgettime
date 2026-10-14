@@ -38,6 +38,8 @@ export function PracticeScreen() {
   const replay = practice.replayState
   const currentHits = replay?.onsets.filter(hit => hit.iteration === replay.iteration) ?? []
   const currentResults = replay?.results.filter(hit => hit.iteration === replay.iteration) ?? []
+  const originalTake = practice.recordedTake
+  const originalAvailable = Boolean(originalTake && (originalTake.source === 'web' || originalTake.source === 'native' || originalTake.provenance?.kind === 'capture' || originalTake.analysis || originalTake.diagnostics || originalTake.onsets.length || originalTake.results.length))
   const originalResults = review ? practice.recordedTake?.results.filter(hit => hit.time >= review.start && hit.time < review.end) ?? [] : []
   const reviewWaveform = review ? { ...review.waveform, progress: source === 'replay' && replay ? replay.progress : review.waveform.progress, hits: currentComparison && replay ? currentHits : review.waveform.hits } : null
   const diagnosticOrigin = review?.start ?? snapshot.phaseOrigin
@@ -71,6 +73,11 @@ export function PracticeScreen() {
   const detail = latest?.uncertain ? 'Uncertain attack' : lastScored?.errorMs !== undefined && lastScored.errorMs !== null
     ? Math.abs(lastScored.errorMs) < 5 ? 'Right in the pocket' : `${Math.abs(Math.round(lastScored.errorMs))} ms ${lastScored.errorMs < 0 ? 'ahead' : 'behind'}`
     : playing ? 'Beat set' : snapshot.status === 'paused' ? 'Ready when you are' : 'Find your pocket'
+  async function inspectReview(action: () => void | Promise<void>) {
+    if (review && source === 'microphone') await practice.reviewCurrentBar()
+    await action()
+  }
+  const inspectCandidate = (candidate: InspectableCandidate) => { void inspectReview(() => setInspectedCandidate(candidate)) }
   function commitTempo() {
     const next = Number(tempoText)
     if (Number.isFinite(next) && next >= 30 && next <= 300) setBpm(next)
@@ -103,15 +110,15 @@ export function PracticeScreen() {
       <div className="result-area"><p className={latest?.uncertain ? 'result uncertain' : 'result'}>{detail}</p><p className="result-note">{latest?.uncertain ? 'No timing score for this hit' : playing ? 'Reference stays fixed as you play' : 'Let your hands do the talking'}</p></div>
       <BarWaveform waveform={reviewWaveform ?? practice.waveform} source={source === 'replay' ? 'replay' : review ? 'microphone' : source === 'off' && practice.waveform.review ? practice.waveformSource : source}
         status={snapshot.status} startSensitivity={startSensitivity}
-        diagnostics={detailsOpen && source !== 'simulation' ? { candidates: visibleCandidates, selectedId: inspectedCandidate?.id, select: setInspectedCandidate } : undefined}
-        review={review ? { index: practice.reviewBarIndex, count: practice.reviewBarCount, availableFraction: review.availableFraction, interrupted: review.endReason === 'interrupted', previous: () => void practice.previousBar(), next: () => void practice.nextBar(), select: () => void practice.reviewCurrentBar(), loop: () => void (source === 'replay' ? practice.stop() : practice.playBar()), canLoop: review.complete && !busy } : undefined}
+        diagnostics={detailsOpen && source !== 'simulation' ? { candidates: visibleCandidates, selectedId: inspectedCandidate?.id, select: inspectCandidate } : undefined}
+        review={review ? { originalAvailable, index: practice.reviewBarIndex, count: practice.reviewBarCount, availableFraction: review.availableFraction, interrupted: review.endReason === 'interrupted', previous: () => void practice.previousBar(), next: () => void practice.nextBar(), select: () => void practice.reviewCurrentBar(), loop: () => void (source === 'replay' ? practice.stop() : practice.playBar()), canLoop: review.complete && !busy } : undefined}
         comparison={review && replay ? { current: currentComparison, select: setCurrentComparison } : undefined} />
       <AudioImportControls practice={practice} />
       <section className="saved-bars" aria-label="Saved bars">
         {review && <button disabled={practice.libraryBusy || !practice.savedBarsSupported} onClick={() => void practice.saveSelectedBar()}>Save bar on device</button>}
         <details><summary>Saved bars ({practice.savedBars.length})</summary>
           <p>Audio stays on this device. Up to 100 bars / 256 MiB. Browser storage can be cleared; download both files for a portable copy.</p>
-          {!practice.savedBarsSupported && <p>Local saved bars are unavailable in this version on this device.</p>}
+          {practice.savedBarsSupported === false && <p>Local saved bars are unavailable in this version on this device.</p>}
           <ul>{practice.savedBars.map(bar => <li key={bar.id}>
             <span>{bar.name}{!bar.complete && ' · partial'}</span>
             <div><button aria-label={`Open ${bar.name}`} disabled={practice.libraryBusy || busy || importPending} onClick={() => void practice.openSavedBar(bar.id)}>Open</button>
@@ -126,16 +133,16 @@ export function PracticeScreen() {
       {review && practice.recordedTake && <p className="source-note">{practice.recordedTake.source === 'saved' ? 'Saved bar' : practice.recordedTake.source === 'imported' ? 'Imported audio' : 'Recorded audio'} · {practice.recordedTake.settings.bpm} BPM · {source === 'microphone' ? 'microphone is listening' : 'microphone is off'}</p>}
       {review && replay && <div className="replay-results">
         <table aria-label="Original and current timing comparison"><thead><tr><th>Analysis</th><th>Detected</th><th>Scored</th><th>Uncertain</th></tr></thead><tbody>
-          <tr><th>Original</th><td>{review.waveform.hits.length}</td><td>{originalResults.filter(hit => !hit.uncertain).length}</td><td>{originalResults.filter(hit => hit.uncertain).length}</td></tr>
+          <tr><th>Original</th><td>{originalAvailable ? review.waveform.hits.length : 'Unavailable'}</td><td>{originalAvailable ? originalResults.filter(hit => !hit.uncertain).length : 'Unavailable'}</td><td>{originalAvailable ? originalResults.filter(hit => hit.uncertain).length : 'Unavailable'}</td></tr>
           <tr><th>Loop {replay.iteration + 1}</th><td>{currentHits.length}</td><td>{currentResults.filter(hit => !hit.uncertain).length}</td><td>{currentResults.filter(hit => hit.uncertain).length}</td></tr>
         </tbody></table>
-        <details><summary>Timing results</summary><p>Original: {originalResults.map(hit => hit.uncertain ? 'uncertain' : `${Math.round(hit.errorMs!)} ms`).join(', ') || 'No scored hits'}</p>
+        <details><summary>Timing results</summary><p>Original: {originalAvailable ? originalResults.map(hit => hit.uncertain ? 'uncertain' : `${Math.round(hit.errorMs!)} ms`).join(', ') || 'No scored hits' : 'analysis unavailable'}</p>
           <p>Current: {replay.results.map(hit => `Loop ${hit.iteration + 1}: ${hit.uncertain ? 'uncertain' : `${Math.round(hit.errorMs!)} ms`}`).join(', ') || 'Waiting for resolved hits'}</p></details>
         <p className="waveform-note">Fresh looping state can differ from original capture. Later repetitions may settle differently; loop joins can add attacks.</p>
       </div>}
-      {source !== 'simulation' && <DetectionDetails open={detailsOpen} toggle={() => setDetailsOpen(value => !value)} settings={practice.detectorSettings}
-        originalSettings={practice.recordedTake?.settings.detector} supported={practice.detectorSettingsSupported} configure={patch => void practice.configureDetector(patch)} reset={() => void practice.resetDetector()}
-        candidates={candidates} selected={inspectedCandidate} select={setInspectedCandidate} page={activeCandidatePage} setPage={setCandidatePage}
+      {source !== 'simulation' && <DetectionDetails open={detailsOpen} toggle={() => void inspectReview(() => setDetailsOpen(value => !value))} settings={practice.detectorSettings}
+        originalSettings={practice.recordedTake?.settings.detector} supported={practice.detectorSettingsSupported} configure={patch => void inspectReview(() => practice.configureDetector(patch))} reset={() => void inspectReview(() => practice.resetDetector())}
+        candidates={candidates} selected={inspectedCandidate} select={inspectCandidate} page={activeCandidatePage} setPage={page => void inspectReview(() => setCandidatePage(page))}
         dropped={diagnosticsDropped} diagnosticsSupported={diagnosticsSupported} context={review ? currentComparison && replay ? `Current loop ${replay.iteration + 1} · fresh run ${replay.run}` : 'Original capture' : source === 'microphone' ? 'Live detector candidates' : 'Latest live candidates'} />}
       <div className="metronome-control">
         <div className="metronome-heading"><span className="small-label">METRONOME</span>

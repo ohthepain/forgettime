@@ -2,6 +2,7 @@
 import { webcrypto } from 'node:crypto'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { Capacitor } from '@capacitor/core'
 import { usePractice } from './use-practice'
 import { OnsetDetector } from './onset-detector'
 import type { CaptureCallbacks } from './capture'
@@ -20,7 +21,7 @@ beforeEach(() => {
   vi.stubGlobal('cancelAnimationFrame', vi.fn())
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
-async function captureBar(repository: SavedBarRepository, rate: number) {
+async function captureBar(repository: SavedBarRepository, rate: number, enterReview = true) {
   const hook = renderHook(() => usePractice(110, 'straight', 50, undefined, { savedBars: repository }))
   await act(() => hook.result.current.listen('auto'))
   const detector = new OnsetDetector()
@@ -33,7 +34,7 @@ async function captureBar(repository: SavedBarRepository, rate: number) {
       callbacks.onFrame({ source: 'web', timestampQuality: 'sample-clock', sampleRate: rate, time: detector.processedThrough ?? 0, level: 0, onsets, pcm: { startFrame, samples: pcm }, diagnostics: detector.drainDiagnostics() })
     }
   })
-  await act(() => hook.result.current.nextBar())
+  if (enterReview) await act(() => hook.result.current.nextBar())
   return hook
 }
 it.each([44100, 48000])('saves only the selected fractional-frame bar and reopens exact PCM and original reference after restart at %i Hz', async rate => {
@@ -129,4 +130,45 @@ it('validates a saved pair before presenting both files to the native chooser an
   await act(() => hook.result.current.exportSavedPair(id))
   expect(exportPair).toHaveBeenCalledOnce()
   expect(hook.result.current.libraryError).toBeTruthy()
+})
+
+
+it('disarms Auto before saving a completed take so later room sounds cannot replace its review', async () => {
+  const repository = storage(), hook = await captureBar(repository, 48000, false)
+  expect(hook.result.current).toMatchObject({ source: 'microphone', captureMode: 'auto', snapshot: { status: 'paused' } })
+  const take = hook.result.current.recordedTake
+  await act(() => hook.result.current.saveSelectedBar())
+  expect(hook.result.current).toMatchObject({ source: 'off', captureMode: 'single' })
+  expect(hook.result.current.savedBars).toHaveLength(1)
+  act(() => callbacks.onFrame({ source: 'web', timestampQuality: 'sample-clock', sampleRate: 48000, time: 9, level: 1, onsets: [{ time: 9, strength: 1, confidence: 1 }] }))
+  expect(hook.result.current.recordedTake).toBe(take)
+})
+
+
+it('allows prospective native detector tuning and reset before the first replay without opening the microphone', async () => {
+  const platform = vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true)
+  try {
+    const hook = renderHook(() => usePractice(110, 'straight', 50, undefined, { savedBars: storage() }))
+    await act(() => hook.result.current.openRecordedMaterial({ source: 'imported', provenance: { kind: 'import' }, audio: { startFrame: 0, sampleRate: 48000, samples: new Float32Array(96000) }, origin: 0, settings: { bpm: 120, mode: 'straight', startSensitivity: 50 }, continuity: 0, onsets: [], results: [], endReason: 'stopped' }))
+    expect(hook.result.current.detectorSettingsSupported).toBe(true)
+    await act(() => hook.result.current.configureDetector({ contrastRatio: 2.5 }))
+    expect(hook.result.current.detectorSettings.contrastRatio).toBe(2.5)
+    await act(() => hook.result.current.resetDetector())
+    expect(hook.result.current.detectorSettings.contrastRatio).toBe(1.8)
+    expect(hardware.capture).not.toHaveBeenCalled()
+    expect(hook.result.current.source).toBe('off')
+  } finally { platform.mockRestore() }
+})
+
+
+it('clears the previous import status when opening a saved bar', async () => {
+  const repository = storage(), hook = await captureBar(repository, 48000)
+  await act(() => hook.result.current.saveSelectedBar())
+  const id = hook.result.current.savedBars[0].id, pair = await repository.read(id)
+  const sidecar = new TextEncoder().encode(pair.sidecar)
+  await act(() => hook.result.current.importFiles([{ name: 'saved.wav', size: pair.wav.byteLength, read: async () => pair.wav }, { name: 'saved.forget', size: sidecar.length, read: async () => sidecar.buffer }]))
+  expect(hook.result.current.importNotice).toMatch(/restored/)
+  await act(() => hook.result.current.openSavedBar(id))
+  expect(hook.result.current.importNotice).toBeNull()
+  expect(hook.result.current.recordedTake!.source).toBe('saved')
 })
