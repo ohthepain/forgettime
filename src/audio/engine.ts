@@ -56,6 +56,7 @@ export class TimingEngine {
   private resolved: ResolvedHit[] = [];
   private preferred: Subdivision = 'quarter';
   private nextId = 1;
+  private replay = false;
 
   constructor(options: TimingOptions, private readonly onResolved?: (hit: ResolvedHit) => void) {
     this.assertBpm(options.bpm);
@@ -68,6 +69,16 @@ export class TimingEngine {
     this.assertTime(nowSeconds);
     this.clearPerformance();
     this.status = 'listening';
+  }
+
+  /** A recorded reference is established before detection; rests never end replay. */
+  startReplay(origin: number): void {
+    this.assertTime(origin);
+    this.clearPerformance();
+    this.replay = true;
+    this.phaseOrigin = origin;
+    this.lockConfidence = 1;
+    this.status = 'playing';
   }
 
   stop(): void {
@@ -147,7 +158,7 @@ export class TimingEngine {
 
   /** Earliest captured-audio time at which the current take may finish. */
   get silenceDeadline(): number | null {
-    return this.status === 'playing' && this.lastHit !== null ? this.lastHit + this.beatSeconds * 4 : null;
+    return !this.replay && this.status === 'playing' && this.lastHit !== null ? this.lastHit + this.beatSeconds * 4 : null;
   }
 
   private get beatSeconds(): number { return 60 / this.bpm; }
@@ -158,7 +169,7 @@ export class TimingEngine {
   private advance(now: number, resolve = true): void {
     if (this.status === 'idle' || this.lastHit === null) return;
     // Timeout is elapsed duration from the last accepted attack.
-    if (now - this.lastHit >= this.beatSeconds * 4 - 1e-9) {
+    if (!this.replay && now - this.lastHit >= this.beatSeconds * 4 - 1e-9) {
       if (this.pending.length) this.resolvePending(now);
       this.status = 'paused';
       this.phaseOrigin = null;
@@ -259,6 +270,7 @@ export class TimingEngine {
   }
 
   private clearPerformance(): void {
+    this.replay = false;
     this.phaseOrigin = null;
     this.lockConfidence = 0;
     this.lastHit = null;

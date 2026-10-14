@@ -26,6 +26,10 @@ export function usePresentedHits(incoming: ResolvedHit[], active: boolean) {
       setHits(current => current.length ? [] : current)
       return
     }
+    // Replay may run indefinitely. Keep deduplication only while a result can
+    // still arrive in a snapshot or its mounted presentation is alive.
+    const incomingIds = new Set(incoming.map(hit => hit.id))
+    seen.current = new Set([...seen.current].filter(id => incomingIds.has(id) || cleanupTimers.current.has(id)))
     const added = incoming.filter(hit => !hit.uncertain && hit.errorMs !== null && !seen.current.has(hit.id))
     if (!added.length) return
     for (const hit of added) {
