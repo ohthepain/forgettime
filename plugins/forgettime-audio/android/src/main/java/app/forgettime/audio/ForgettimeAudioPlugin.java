@@ -23,6 +23,8 @@ import com.getcapacitor.annotation.PermissionCallback;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.LinkedHashSet;
+import org.json.JSONObject;
 
 @CapacitorPlugin(name = "ForgettimeAudio", permissions = {
     @Permission(alias = "microphone", strings = { Manifest.permission.RECORD_AUDIO })
@@ -30,10 +32,15 @@ import java.util.UUID;
 public class ForgettimeAudioPlugin extends Plugin {
     private volatile Session session;
     private PluginCall pendingStart;
+    private ReplayOutput replay;
+    private String replayId, lastReplayId, lastReplayReason;
+    private String lastReplayStatus = "stopped";
+    private final LinkedHashSet<String> cancelledReplay = new LinkedHashSet<>();
+    private volatile boolean foreground = true;
 
     @PluginMethod
     public synchronized void start(PluginCall call) {
-        if (session != null || pendingStart != null) {
+        if (session != null || pendingStart != null || replay != null) {
             call.reject("Microphone capture is already starting or running.");
             return;
         }
@@ -74,7 +81,7 @@ public class ForgettimeAudioPlugin extends Plugin {
                 record = null;
             }
             if (record == null) throw new IllegalStateException("No supported microphone capture format.");
-            Session capture = new Session(record, rate);
+            Session capture = new Session(record, rate, detectorSettings(call.getObject("detectorSettings")));
             disableEffects(capture);
             record.startRecording();
             if (record.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING) {
@@ -87,6 +94,8 @@ public class ForgettimeAudioPlugin extends Plugin {
             result.put("sampleRate", rate);
             result.put("sessionId", capture.id);
             result.put("timestampQuality", "sample-clock");
+            result.put("diagnosticsSupported", true);
+            result.put("analysis", new JSONObject(DrumOnsetDetector.map("implementation", "forgettime-java-onset", "version", "1")));
             call.resolve(result);
             capture.worker = new Thread(() -> readAudio(capture), "ForgettimeAudioCapture");
             capture.worker.start();
@@ -168,6 +177,8 @@ public class ForgettimeAudioPlugin extends Plugin {
                 event.put("level", batch.level);
                 event.put("onsets", onsets);
                 event.put("waveform", waveform);
+                event.put("diagnostics", new JSONObject(batch.diagnostics.toMap()));
+                event.put("analysis", new JSONObject(DrumOnsetDetector.map("implementation", "forgettime-java-onset", "version", "1")));
                 if (capture.record.getTimestamp(stamp, AudioTimestamp.TIMEBASE_MONOTONIC) == AudioRecord.SUCCESS) {
                     event.put("timestampQuality", "hardware");
                     event.put("hardwareTime", stamp.nanoTime / 1e9 + analyzedTime - stamp.framePosition / (double) capture.sampleRate);
@@ -193,6 +204,98 @@ public class ForgettimeAudioPlugin extends Plugin {
             for (AudioEffect effect : capture.effects) if (effect != null) effect.release();
             synchronized (this) { if (session == capture) session = null; }
         }
+    }
+
+    private static DrumOnsetDetector.Settings detectorSettings(JSObject settings) {
+        if (settings == null) return new DrumOnsetDetector.Settings();
+        return new DrumOnsetDetector.Settings(settings.optInt("version", -1), settings.optDouble("minimumRms", Double.NaN),
+            settings.optDouble("contrastRatio", Double.NaN), settings.optDouble("minSeparationMs", Double.NaN), settings.optDouble("recoverySeconds", Double.NaN));
+    }
+
+    @PluginMethod
+    public void setDetectorSettings(PluginCall call) {
+        Session capture = session;
+        if (capture == null || !capture.id.equals(call.getString("sessionId"))) { call.resolve(); return; }
+        try { capture.stream.configure(detectorSettings(call.getObject("detectorSettings"))); call.resolve(); }
+        catch (RuntimeException error) { call.reject(error.getMessage()); }
+    }
+
+    @PluginMethod
+    public synchronized void startReplay(PluginCall call) {
+        String id = call.getString("sessionId");
+        if (id == null || id.isEmpty() || id.length() > 128) { call.reject("Invalid replay session."); return; }
+        if (cancelledReplay.contains(id) || !foreground) { call.reject("Replay start was cancelled."); return; }
+        if (replay != null || session != null || pendingStart != null) { call.reject("Stop the active audio session before replay."); return; }
+        try {
+            int rate = call.getInt("sampleRate", 0);
+            JSArray values = call.getArray("samples");
+            if (rate < 8000 || rate > 192000 || values == null || values.length() < 1 || values.length() > Math.min(rate * 8, 1536000))
+                throw new IllegalArgumentException("Unsupported native replay format or size.");
+            float[] samples = new float[values.length()];
+            for (int i = 0; i < samples.length; i++) {
+                samples[i] = (float) values.getDouble(i);
+                if (!Float.isFinite(samples[i])) throw new IllegalArgumentException("Replay samples must be finite.");
+            }
+            AudioManager manager = (AudioManager) getContext().getSystemService(android.content.Context.AUDIO_SERVICE);
+            replay = new ReplayOutput(samples, rate, detectorSettings(call.getObject("detectorSettings")), manager);
+            replayId = id;
+            JSObject result = new JSObject(); result.put("sessionId", id); result.put("sampleRate", rate);
+            result.put("frameCount", samples.length); result.put("diagnosticsSupported", true); call.resolve(result);
+        } catch (Exception error) { call.reject("Unable to start native replay: " + error.getMessage(), error); }
+    }
+
+    @PluginMethod
+    public synchronized void readReplay(PluginCall call) {
+        String id = call.getString("sessionId");
+        JSObject result = new JSObject(); result.put("sessionId", id);
+        if (replay == null || !replayId.equals(id)) {
+            result.put("status", id != null && id.equals(lastReplayId) ? lastReplayStatus : "stopped");
+            result.put("reason", id != null && id.equals(lastReplayId) ? lastReplayReason : "Replay session stopped.");
+            call.resolve(result); return;
+        }
+        try {
+            NativeReplayStream.Frame frame = replay.read();
+            result.put("status", "playing"); result.put("sampleRate", replay.stream.sampleRate);
+            result.put("audibleFrame", frame.audibleFrame); result.put("analyzedThroughFrame", frame.analyzedThroughFrame);
+            result.put("clockQuality", replay.clockQuality());
+            JSArray onsets = new JSArray();
+            for (DrumOnsetDetector.Onset onset : frame.onsets) onsets.put(new JSONObject(DrumOnsetDetector.map("time", onset.time, "strength", onset.strength, "confidence", onset.confidence)));
+            result.put("onsets", onsets); result.put("diagnostics", new JSONObject(frame.diagnostics.toMap()));
+        } catch (RuntimeException error) {
+            stopReplaySession(error.getMessage(), "error");
+            result.put("status", "error"); result.put("reason", error.getMessage());
+        }
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public synchronized void stopReplay(PluginCall call) {
+        String id = call.getString("sessionId");
+        if (id != null) {
+            cancelledReplay.add(id);
+            while (cancelledReplay.size() > 32) cancelledReplay.remove(cancelledReplay.iterator().next());
+            if (id.equals(replayId)) stopReplaySession("Playback stopped.", "stopped");
+        }
+        call.resolve();
+    }
+
+    @PluginMethod
+    public synchronized void setReplayMetronome(PluginCall call) {
+        if (replay == null || !replayId.equals(call.getString("sessionId"))) { call.resolve(); return; }
+        JSObject value = call.getObject("plan");
+        if (value == null) { replay.setPlan(null); call.resolve(); return; }
+        double origin = value.optDouble("origin", Double.NaN), bpm = value.optDouble("bpm", Double.NaN), until = value.optDouble("untilTime", Double.NaN);
+        int from = value.optInt("fromBeat", -1);
+        if (!Double.isFinite(origin) || !Double.isFinite(bpm) || !Double.isFinite(until) || bpm < 30 || bpm > 300 || from < 1) {
+            replay.setPlan(null); call.reject("Invalid replay metronome clock."); return;
+        }
+        replay.setPlan(new ReplayOutput.Plan(origin, bpm, from, until)); call.resolve();
+    }
+
+    private synchronized void stopReplaySession(String reason, String status) {
+        if (replay == null) return;
+        lastReplayId = replayId; lastReplayReason = reason; lastReplayStatus = status;
+        replay.stop(reason); replay = null; replayId = null;
     }
 
     @PluginMethod
@@ -256,12 +359,15 @@ public class ForgettimeAudioPlugin extends Plugin {
         }
     }
 
+    @Override protected void handleOnResume() { foreground = true; }
     @Override protected void handleOnPause() {
+        foreground = false;
+        stopReplaySession("Playback stopped while the app was backgrounded.", "stopped");
         // A runtime permission prompt can pause Activity; do not cancel its pending request.
         if (session != null) stopCapture("background");
     }
-    @Override protected void handleOnStop() { stopCapture("background"); }
-    @Override protected void handleOnDestroy() { stopCapture("destroyed"); }
+    @Override protected void handleOnStop() { foreground = false; stopReplaySession("Playback stopped while the app was backgrounded.", "stopped"); stopCapture("background"); }
+    @Override protected void handleOnDestroy() { foreground = false; stopReplaySession("Playback session destroyed.", "stopped"); stopCapture("destroyed"); }
 
     private static class Session {
         final AudioRecord record;
@@ -272,10 +378,10 @@ public class ForgettimeAudioPlugin extends Plugin {
         final List<AudioEffect> effects = new ArrayList<>();
         volatile boolean running = true;
         Thread worker;
-        Session(AudioRecord record, int sampleRate) {
+        Session(AudioRecord record, int sampleRate, DrumOnsetDetector.Settings settings) {
             this.record = record;
             this.sampleRate = sampleRate;
-            this.stream = new NativeCaptureStream(sampleRate);
+            this.stream = new NativeCaptureStream(sampleRate, settings);
         }
     }
 }
