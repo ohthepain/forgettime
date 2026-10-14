@@ -1,5 +1,5 @@
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core'
-import { ForgettimeAudio } from 'forgettime-audio'
+import { ForgettimeAudio, type NativeAudioFrame } from 'forgettime-audio'
 import type { CapturedPcm } from './recorded-take'
 import { OnsetDetector, type DetectedOnset } from './onset-detector'
 import { WaveformEnvelopeCapture, type WaveformEnvelope } from './waveform-envelope'
@@ -152,10 +152,48 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
           if (!Capacitor.isPluginAvailable('ForgettimeAudio')) {
             throw new Error('This mobile build is missing the Forgettime audio plugin. Rebuild and sync the native app.')
           }
-          listeners.push(await ForgettimeAudio.addListener('audioFrame', (frame) => {
+          let nativeClock: { sessionId: string; sampleRate: number; endFrame: number } | undefined
+          let nativeSession: string | undefined
+          let nativeRate: number | undefined
+          const pendingFrames: NativeAudioFrame[] = []
+          let pendingSamples = 0
+          const receiveNative = (frame: NativeAudioFrame) => {
             if (!current()) return
-            callbacks.onFrame({ ...frame, source: 'native' })
-          }))
+            if (!nativeSession) {
+              pendingSamples += frame.pcm?.samples.length ?? 0
+              if (pendingFrames.length >= 64 || pendingSamples > frame.sampleRate * 0.5) {
+                fail(new Error('Native audio startup could not keep up. Restart listening.'))
+              } else pendingFrames.push(frame)
+              return
+            }
+            // An old native generation can still have events queued in the bridge.
+            if (frame.sessionId && frame.sessionId !== nativeSession) return
+            const pcm = frame.pcm
+            if (!pcm || !frame.sessionId || typeof ForgettimeAudio.acknowledgeFrame !== 'function') {
+              fail(new Error('This native audio plugin cannot retain recordings. Rebuild and sync the native app.'))
+              return
+            }
+            if (!Number.isSafeInteger(pcm.startFrame) || pcm.startFrame < 0
+              || !Number.isFinite(frame.sampleRate) || frame.sampleRate <= 0 || frame.sampleRate !== nativeRate
+              || !Array.isArray(pcm.samples) || !pcm.samples.length || pcm.samples.length > 16384
+              || !pcm.samples.every(sample => Number.isFinite(sample) && Number.isFinite(Math.fround(sample)))
+              || (nativeClock && (nativeClock.sessionId !== frame.sessionId
+                || nativeClock.sampleRate !== frame.sampleRate || nativeClock.endFrame !== pcm.startFrame))) {
+              fail(new Error('Native audio capture was interrupted or changed format. Your captured material is preserved; restart listening.'))
+              return
+            }
+            const endFrame = pcm.startFrame + pcm.samples.length
+            nativeClock = { sessionId: frame.sessionId, sampleRate: frame.sampleRate, endFrame }
+            callbacks.onFrame({ ...frame, source: 'native', pcm: {
+              startFrame: pcm.startFrame, samples: Float32Array.from(pcm.samples),
+            } })
+            if (current()) {
+              void ForgettimeAudio.acknowledgeFrame({ sessionId: frame.sessionId, endFrame }).catch(() => {
+                if (current()) fail(new Error('Native audio retention is unavailable. Rebuild and sync the native app.'))
+              })
+            }
+          }
+          listeners.push(await ForgettimeAudio.addListener('audioFrame', receiveNative))
           ensureCurrent()
           listeners.push(await ForgettimeAudio.addListener('captureError', ({ message }) => {
             if (current()) fail(new Error(message))
@@ -169,7 +207,12 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
           nativeStarted = true
           const nativeInfo = await ForgettimeAudio.start()
           ensureCurrent()
+          if (!nativeInfo.sessionId) throw new Error('This native audio plugin cannot retain recordings. Rebuild and sync the native app.')
+          nativeSession = nativeInfo.sessionId
+          nativeRate = nativeInfo.sampleRate
           info = { ...nativeInfo, source: 'native' }
+          for (const frame of pendingFrames) receiveNative(frame)
+          pendingFrames.length = 0
         } else {
           if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
             throw new Error('Microphone access needs HTTPS or localhost and a supported browser.')

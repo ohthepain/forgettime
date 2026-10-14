@@ -22,6 +22,7 @@ import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @CapacitorPlugin(name = "ForgettimeAudio", permissions = {
     @Permission(alias = "microphone", strings = { Manifest.permission.RECORD_AUDIO })
@@ -84,6 +85,7 @@ public class ForgettimeAudioPlugin extends Plugin {
             pendingStart = null;
             JSObject result = new JSObject();
             result.put("sampleRate", rate);
+            result.put("sessionId", capture.id);
             result.put("timestampQuality", "sample-clock");
             call.resolve(result);
             capture.worker = new Thread(() -> readAudio(capture), "ForgettimeAudioCapture");
@@ -130,36 +132,40 @@ public class ForgettimeAudioPlugin extends Plugin {
                     if (routeId != 0 && routeId != route.getId()) throw new IllegalStateException("Microphone route changed; restart listening.");
                     routeId = route.getId();
                 }
-                JSArray onsets = new JSArray();
-                JSArray waveform = new JSArray();
-                double energy = 0;
-                for (int i = 0; i < count; i++) {
-                    double sample = buffer[i] / 32768.0;
-                    energy += sample * sample;
-                    WaveformEnvelopeCapture.Point point = capture.waveform.process(sample, (frame + i) / (double) capture.sampleRate);
-                    if (point != null) {
-                        JSObject envelope = new JSObject();
-                        envelope.put("time", point.time);
-                        envelope.put("duration", point.duration);
-                        envelope.put("min", point.min);
-                        envelope.put("max", point.max);
-                        waveform.put(envelope);
-                    }
-                    DrumOnsetDetector.Onset onset = capture.detector.process(sample, (frame + i) / (double) capture.sampleRate);
-                    if (onset != null) {
-                        JSObject hit = new JSObject();
-                        hit.put("time", onset.time);
-                        hit.put("strength", onset.strength);
-                        hit.put("confidence", onset.confidence);
-                        onsets.put(hit);
-                    }
+                if (capture.record.getSampleRate() != capture.sampleRate) {
+                    throw new IllegalStateException("Microphone sample rate changed; restart listening.");
                 }
+                NativeCaptureStream.Batch batch = capture.stream.process(buffer, count);
+                JSArray onsets = new JSArray();
+                for (DrumOnsetDetector.Onset onset : batch.onsets) {
+                    JSObject hit = new JSObject();
+                    hit.put("time", onset.time);
+                    hit.put("strength", onset.strength);
+                    hit.put("confidence", onset.confidence);
+                    onsets.put(hit);
+                }
+                JSArray waveform = new JSArray();
+                for (WaveformEnvelopeCapture.Point point : batch.waveform) {
+                    JSObject envelope = new JSObject();
+                    envelope.put("time", point.time);
+                    envelope.put("duration", point.duration);
+                    envelope.put("min", point.min);
+                    envelope.put("max", point.max);
+                    waveform.put(envelope);
+                }
+                JSArray samples = new JSArray();
+                for (double sample : batch.samples) samples.put(sample);
+                JSObject pcm = new JSObject();
+                pcm.put("startFrame", batch.startFrame);
+                pcm.put("samples", samples);
                 frame += count;
-                double analyzedTime = capture.detector.getProcessedThrough();
+                double analyzedTime = batch.time;
                 JSObject event = new JSObject();
+                event.put("sessionId", capture.id);
+                event.put("pcm", pcm);
                 event.put("time", analyzedTime);
                 event.put("sampleRate", capture.sampleRate);
-                event.put("level", Math.min(1, Math.sqrt(energy / count)));
+                event.put("level", batch.level);
                 event.put("onsets", onsets);
                 event.put("waveform", waveform);
                 if (capture.record.getTimestamp(stamp, AudioTimestamp.TIMEBASE_MONOTONIC) == AudioRecord.SUCCESS) {
@@ -186,6 +192,18 @@ public class ForgettimeAudioPlugin extends Plugin {
             for (AudioEffect effect : capture.effects) if (effect != null) effect.release();
             synchronized (this) { if (session == capture) session = null; }
         }
+    }
+
+    @PluginMethod
+    public void acknowledgeFrame(PluginCall call) {
+        Session capture = session;
+        if (capture != null && capture.id.equals(call.getString("sessionId"))) {
+            Double endFrame = call.getDouble("endFrame");
+            if (endFrame != null && Double.isFinite(endFrame) && endFrame >= 0 && endFrame == Math.floor(endFrame)) {
+                capture.stream.acknowledge(endFrame.longValue());
+            }
+        }
+        call.resolve();
     }
 
     @PluginMethod
@@ -246,8 +264,8 @@ public class ForgettimeAudioPlugin extends Plugin {
     private static class Session {
         final AudioRecord record;
         final int sampleRate;
-        final DrumOnsetDetector detector;
-        final WaveformEnvelopeCapture waveform;
+        final String id = UUID.randomUUID().toString();
+        final NativeCaptureStream stream;
         MetronomeOutput metronome;
         final List<AudioEffect> effects = new ArrayList<>();
         volatile boolean running = true;
@@ -255,8 +273,7 @@ public class ForgettimeAudioPlugin extends Plugin {
         Session(AudioRecord record, int sampleRate) {
             this.record = record;
             this.sampleRate = sampleRate;
-            this.detector = new DrumOnsetDetector(sampleRate);
-            this.waveform = new WaveformEnvelopeCapture(sampleRate);
+            this.stream = new NativeCaptureStream(sampleRate);
         }
     }
 }
