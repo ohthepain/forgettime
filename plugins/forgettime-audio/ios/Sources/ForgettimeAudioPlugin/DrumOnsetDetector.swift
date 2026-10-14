@@ -3,6 +3,19 @@ import Foundation
 /// Port of src/audio/onset-detector.ts. Keep thresholds and fixtures in sync.
 final class DrumOnsetDetector {
     struct Onset { let time: Double; let strength: Double; let confidence: Double }
+    private let settingsLock = NSLock()
+    private var settings: DetectorSettings
+    private var diagnostics: [[String: Any]] = []
+    private var diagnosticsDropped = 0
+    private var nextCandidateId = 1
+    func configure(_ value: DetectorSettings) {
+        settingsLock.lock(); settings = value; settingsLock.unlock()
+    }
+    func drainDiagnostics() -> [String: Any] {
+        let result: [String: Any] = ["candidates": diagnostics, "dropped": diagnosticsDropped]
+        diagnostics = []; diagnosticsDropped = 0
+        return result
+    }
     private let sampleRate: Double
     private var window: [Double]
     private var filled = 0
@@ -21,7 +34,8 @@ final class DrumOnsetDetector {
     private var historyCount = 0
     private var historyEnergy = 0.0
 
-    init(sampleRate: Double) {
+    init(sampleRate: Double, settings: DetectorSettings = .defaults) {
+        self.settings = settings
         self.sampleRate = sampleRate
         self.window = Array(repeating: 0, count: max(32, Int((sampleRate * 0.002667).rounded())))
     }
@@ -32,6 +46,7 @@ final class DrumOnsetDetector {
         guard filled == window.count else { return nil }
         filled = 0
         processedThrough = windowTime + Double(window.count) / sampleRate
+        settingsLock.lock(); let settings = self.settings; settingsLock.unlock()
         var energy = 0.0
         var peak = 0.0
         for value in window { energy += value * value; peak = max(peak, abs(value)) }
@@ -48,10 +63,10 @@ final class DrumOnsetDetector {
         historyCount = min(historyCount + 1, energyHistory.count)
         let previous = previousRms
         // Fast level attack, 1 s hold, 4 s release. Never apply gain to PCM.
-        if windowTime >= levelHoldUntil { levelReference *= exp(-Double(window.count) / sampleRate / 4) }
+        if windowTime >= levelHoldUntil { levelReference *= exp(-Double(window.count) / sampleRate / settings.recoverySeconds) }
         if rms >= levelReference * 0.7 { levelHoldUntil = windowTime + 1 }
         levelReference = max(rms, levelReference)
-        let floor = 0.006
+        let floor = settings.minimumRms
         let minimumLevel = max(floor, levelReference * 0.05)
         let rise = rms - previous
         let ratio = rms / max(previous, floor)
@@ -63,19 +78,70 @@ final class DrumOnsetDetector {
         if rms < recentPeak * 0.7 { armed = true }
         previousRms = rms
         recentPeak = max(rms, recentPeak * 0.99)
-        if !backgroundReady || elapsed < 0.018 || (!armed && ratio < 2.5) || rms < minimumLevel || rise < 0.002 || ratio < 1.55 || contrast < 1.8 { return nil }
+        var reasons: [String] = []
+        if !backgroundReady { reasons.append("warming-up") }
+        if elapsed < settings.minSeparationMs / 1000 { reasons.append("separation") }
+        if !armed && ratio < 2.5 { reasons.append("rearming") }
+        if rms < minimumLevel { reasons.append("level") }
+        if rise < 0.002 || ratio < 1.55 { reasons.append("rise") }
+        if contrast < settings.contrastRatio { reasons.append("contrast") }
         var offset = 0
         let attackThreshold = max(peak * 0.25, previous * 2)
         while offset < window.count - 1 && abs(window[offset]) < attackThreshold { offset += 1 }
         let onsetTime = windowTime + Double(offset) / sampleRate
+        let confidence = min(0.98, max(0.35, 0.45 + log2(max(ratio, 1e-12)) * 0.15 + min(0.2, rise * 2)))
+        if reasons.isEmpty || (peak >= 0.001 && rise > 0.0001 && rms / max(previous, 0.0001) >= 1.1) {
+            let measurements: [String: Any] = [
+                "rms": rms, "minimumLevel": minimumLevel, "levelReference": levelReference,
+                "rise": rise, "minimumRise": 0.002, "ratio": ratio, "minimumRatio": 1.55,
+                "contrast": contrast, "minimumContrast": settings.contrastRatio,
+                "backgroundRms": backgroundRms, "baselineRms": baseline, "armed": armed, "rearmRatio": 2.5,
+                "elapsedMs": elapsed.isFinite ? elapsed * 1000 : NSNull(), "minimumSeparationMs": settings.minSeparationMs
+            ]
+            let candidate: [String: Any] = ["version": 1, "id": nextCandidateId, "time": onsetTime,
+                "strength": min(1, peak), "confidence": confidence, "accepted": reasons.isEmpty,
+                "reasons": reasons, "settings": settings.dictionary, "measurements": measurements]
+            nextCandidateId += 1
+            if diagnostics.count < 2048 { diagnostics.append(candidate) } else { diagnosticsDropped += 1 }
+        }
+        if !reasons.isEmpty { return nil }
         lastOnsetTime = onsetTime
-        if fullContrast >= 1.8 {
+        if fullContrast >= settings.contrastRatio {
             lastClearAttackTime = onsetTime
             preAttackBackground = backgroundRms
         }
         armed = false
         recentPeak = max(recentPeak, rms)
-        return Onset(time: onsetTime, strength: min(1, peak), confidence:
-            min(0.98, max(0.35, 0.45 + log2(ratio) * 0.15 + min(0.2, rise * 2))))
+        return Onset(time: onsetTime, strength: min(1, peak), confidence: confidence)
     }
+}
+
+
+/// Versioned mirror of src/audio/detector-contract.ts. Preserve defaults and clamps.
+struct DetectorSettings {
+    let minimumRms: Double
+    let contrastRatio: Double
+    let minSeparationMs: Double
+    let recoverySeconds: Double
+    static let defaults = try! DetectorSettings([:])
+    init(_ values: [String: Any]) throws {
+        if let version = values["version"], (version as? Int) != 1 { throw DetectorSettingsError.invalid }
+        func value(_ key: String, _ fallback: Double, _ lower: Double, _ upper: Double) throws -> Double {
+            guard let supplied = values[key] else { return fallback }
+            guard let number = supplied as? Double, number.isFinite else { throw DetectorSettingsError.invalid }
+            return min(upper, max(lower, number))
+        }
+        minimumRms = try value("minimumRms", 0.006, 0.001, 0.1)
+        contrastRatio = try value("contrastRatio", 1.8, 1.1, 4)
+        minSeparationMs = try value("minSeparationMs", 18, 8, 100)
+        recoverySeconds = try value("recoverySeconds", 4, 0.25, 12)
+    }
+    var dictionary: [String: Any] {
+        ["version": 1, "minimumRms": minimumRms, "contrastRatio": contrastRatio,
+         "minSeparationMs": minSeparationMs, "recoverySeconds": recoverySeconds]
+    }
+}
+enum DetectorSettingsError: LocalizedError {
+    case invalid
+    var errorDescription: String? { "Unsupported or invalid detector settings." }
 }

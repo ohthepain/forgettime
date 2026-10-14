@@ -10,6 +10,7 @@ import { BrowserOutputAlignment, browserLatencyEstimate, type BrowserLatencyEsti
 export interface CaptureInfo {
   /** Actual detector implementation, absent for older unknown native versions. */
   analysis?: { implementation: string; version: string }
+  diagnosticsSupported?: boolean
   source: 'native' | 'web'
   sampleRate: number
   timestampQuality: 'hardware' | 'sample-clock'
@@ -66,6 +67,7 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
   let worklet: AudioWorkletNode | undefined
   let listeners: PluginListenerHandle[] = []
   let nativeStarted = false
+  let nativeSessionId: string | undefined
   let outputFailed = false
   let outputPending = false
   let latestPlan: MetronomePlan | null = null
@@ -75,6 +77,7 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
 
   const cleanup = async () => {
     running = false
+    nativeSessionId = undefined
     latestPlan = null
     outputAlignment.reset()
     info = undefined
@@ -220,9 +223,10 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
           ensureCurrent()
           // Set before awaiting, so stop() can cancel a native permission request.
           nativeStarted = true
-          const nativeInfo = await ForgettimeAudio.start()
+          const nativeInfo = await ForgettimeAudio.start({ detectorSettings: options.detectorSettings })
           ensureCurrent()
           if (!nativeInfo.sessionId) throw new Error('This native audio plugin cannot retain recordings. Rebuild and sync the native app.')
+          nativeSessionId = nativeInfo.sessionId
           nativeSession = nativeInfo.sessionId
           nativeRate = nativeInfo.sampleRate
           info = { ...nativeInfo, source: 'native' }
@@ -359,7 +363,12 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
   }
 
   return { start, stop, setMetronome, setDetectorSettings: settings => {
-    if (Capacitor.isNativePlatform()) throw new Error('Native detector tuning requires an updated audio plugin.')
-    detector.configure(settings)
+    if (Capacitor.isNativePlatform()) {
+      if (!nativeSessionId || !info?.diagnosticsSupported) throw new Error('Native detector tuning requires an updated audio plugin.')
+      const sessionId = nativeSessionId
+      void ForgettimeAudio.setDetectorSettings({ sessionId, detectorSettings: settings }).catch(error => {
+        if (sessionId === nativeSessionId) fail(error instanceof Error ? error : new Error('Native detector tuning failed.'))
+      })
+    } else detector.configure(settings)
   } }
 }
