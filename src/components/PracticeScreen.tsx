@@ -55,6 +55,12 @@ export function PracticeScreen() {
   const presented = usePresentedHits(snapshot.hits, playing)
   useEffect(() => { void usePreferences.persist.rehydrate() }, [])
   useEffect(() => { setTempoText(String(bpm)) }, [bpm])
+  useEffect(() => {
+    const take = practice.recordedTake
+    if (take?.source !== 'saved' && take?.source !== 'imported') return
+    // Restored controls also become the next live take's settings; the retained grid stays immutable.
+    usePreferences.setState({ bpm: take.settings.bpm, mode: take.settings.mode, startSensitivity: take.settings.startSensitivity })
+  }, [practice.recordedTake])
   const status = source === 'replay' ? `Loop ${(replay?.iteration ?? 0) + 1} · ${snapshot.bpm} BPM fixed` : busy ? 'Opening microphone…' : snapshot.status === 'playing' ? `Playing · ${bpm} BPM locked`
     : snapshot.status === 'paused' ? 'Paused · listening for you'
     : snapshot.status === 'listening' ? 'Listening · play your first hit' : 'Your tempo. Your time.'
@@ -98,6 +104,23 @@ export function PracticeScreen() {
         diagnostics={detailsOpen && source !== 'simulation' ? { candidates: visibleCandidates, selectedId: inspectedCandidate?.id, select: setInspectedCandidate } : undefined}
         review={review ? { index: practice.reviewBarIndex, count: practice.reviewBarCount, availableFraction: review.availableFraction, interrupted: review.endReason === 'interrupted', previous: () => void practice.previousBar(), next: () => void practice.nextBar(), select: () => void practice.reviewCurrentBar(), loop: () => void (source === 'replay' ? practice.stop() : practice.playBar()), canLoop: review.complete && !busy } : undefined}
         comparison={review && replay ? { current: currentComparison, select: setCurrentComparison } : undefined} />
+      <section className="saved-bars" aria-label="Saved bars">
+        {review && <button disabled={practice.libraryBusy || !practice.savedBarsSupported} onClick={() => void practice.saveSelectedBar()}>Save bar on device</button>}
+        <details><summary>Saved bars ({practice.savedBars.length})</summary>
+          <p>Audio stays on this device. Up to 100 bars / 256 MiB. Browser storage can be cleared; download both files for a portable copy.</p>
+          {!practice.savedBarsSupported && <p>Local saved bars are unavailable in this version on this device.</p>}
+          <ul>{practice.savedBars.map(bar => <li key={bar.id}>
+            <span>{bar.name}{!bar.complete && ' · partial'}</span>
+            <div><button aria-label={`Open ${bar.name}`} disabled={practice.libraryBusy || busy} onClick={() => void practice.openSavedBar(bar.id)}>Open</button>
+              <button aria-label={`Download WAV for ${bar.name}`} disabled={practice.libraryBusy} onClick={() => void practice.exportSavedFile(bar.id, 'wav')}>WAV ↓</button>
+              <button aria-label={`Download .forget for ${bar.name}`} disabled={practice.libraryBusy} onClick={() => void practice.exportSavedFile(bar.id, 'forget')}>.forget ↓</button></div>
+          </li>)}</ul>
+        </details>
+        {practice.libraryBusy && <p role="status">Working with local files…</p>}
+        {practice.libraryNotice && <p role="status">{practice.libraryNotice}</p>}
+        {practice.libraryError && <p className="error-message" role="alert">{practice.libraryError}</p>}
+      </section>
+      {review && practice.recordedTake && <p className="source-note">{practice.recordedTake.source === 'saved' ? 'Saved bar' : practice.recordedTake.source === 'imported' ? 'Imported audio' : 'Recorded audio'} · {practice.recordedTake.settings.bpm} BPM · microphone is off</p>}
       {review && replay && <div className="replay-results">
         <table aria-label="Original and current timing comparison"><thead><tr><th>Analysis</th><th>Detected</th><th>Scored</th><th>Uncertain</th></tr></thead><tbody>
           <tr><th>Original</th><td>{review.waveform.hits.length}</td><td>{originalResults.filter(hit => !hit.uncertain).length}</td><td>{originalResults.filter(hit => hit.uncertain).length}</td></tr>
@@ -147,7 +170,7 @@ export function PracticeScreen() {
       {source === 'simulation' && <p className="source-note demo-label">Generated hits · microphone is off</p>}
     </section>
     <footer className="app-footer"><span>Listen to your own time.</span>{!running && <button onClick={() => void practice.simulate()} disabled={busy}>Try a simulation <span aria-hidden="true">↗</span></button>}</footer>
-    {helpOpen && <section className="help-panel"><h2>Make room for the groove.</h2><p>Choose a tempo, enable the microphone, then play. Your first strong hit sets beat 1 immediately. The clock stays fixed, so drifting ahead or behind remains visible.</p><p>Auto considers straight and triplet rhythms across a short sequence. Straight uses eighths and sixteenths; Swing / triplet uses triplet subdivisions. Fills need a little interpretation time. Ambiguous attacks get no precise score.</p><p>Play the starting hit on your intended downbeat. The counter continues through gaps shorter than a full bar. After a full bar without a hit, a single take ends and the microphone stops. Choose Auto beside the microphone button to keep listening and start a fresh take with your next strong hit. Stop ends either mode. Use Start sensitivity in Settings to choose how firmly you need to play to begin; it does not change detection during the performance.</p><p>Audio stays on your device. The latest take is held in memory for bar review, up to two minutes; a new take replaces it and closing the app discards it. Quiet hits under cymbals may be missed. Device timing accuracy still needs real-world calibration. Changing tempo or interpretation starts a fresh reference.</p></section>}
+    {helpOpen && <section className="help-panel"><h2>Make room for the groove.</h2><p>Choose a tempo, enable the microphone, then play. Your first strong hit sets beat 1 immediately. The clock stays fixed, so drifting ahead or behind remains visible.</p><p>Auto considers straight and triplet rhythms across a short sequence. Straight uses eighths and sixteenths; Swing / triplet uses triplet subdivisions. Fills need a little interpretation time. Ambiguous attacks get no precise score.</p><p>Play the starting hit on your intended downbeat. The counter continues through gaps shorter than a full bar. After a full bar without a hit, a single take ends and the microphone stops. Choose Auto beside the microphone button to keep listening and start a fresh take with your next strong hit. Stop ends either mode. Use Start sensitivity in Settings to choose how firmly you need to play to begin; it does not change detection during the performance.</p><p>Audio stays on your device. The latest take is held in memory for bar review, up to two minutes; a new take replaces it and closing the app discards it unless you choose Save bar on device. Saved bars remain locally until browser storage is cleared; download both the WAV and .forget files for a portable copy. Quiet hits under cymbals may be missed. Device timing accuracy still needs real-world calibration. Changing tempo or interpretation starts a fresh reference.</p></section>}
     {accountOpen && <AccountDialog onClose={() => setAccountOpen(false)} />}
     {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
   </main>
