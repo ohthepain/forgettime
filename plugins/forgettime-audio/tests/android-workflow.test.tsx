@@ -9,10 +9,10 @@ import { join, resolve } from 'node:path'
 import type { NativeAudioFrame } from 'forgettime-audio'
 import { usePractice } from '../../../src/audio/use-practice'
 
-const bridge = vi.hoisted(() => ({ callbacks: new Map<string, (event: any) => void>(), stop: vi.fn(), ack: vi.fn() }))
+const bridge = vi.hoisted(() => ({ rate: 48000, callbacks: new Map<string, (event: any) => void>(), stop: vi.fn(), ack: vi.fn() }))
 vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => true, isPluginAvailable: () => true } }))
 vi.mock('forgettime-audio', () => ({ ForgettimeAudio: {
-  start: async () => ({ sessionId: 'android-host', sampleRate: 48000, timestampQuality: 'sample-clock' }),
+  start: async () => ({ sessionId: 'android-host', sampleRate: bridge.rate, timestampQuality: 'sample-clock' }),
   stop: bridge.stop,
   setMetronome: async () => {},
   acknowledgeFrame: bridge.ack,
@@ -37,6 +37,7 @@ describe.skipIf(!process.env.FORGETTIME_NATIVE_HOST_TESTS)('Android native PCM t
   }, 20000)
   afterAll(() => { if (directory) rmSync(directory, { recursive: true, force: true }) })
   beforeEach(() => {
+    bridge.rate = 48000
     bridge.callbacks.clear()
     bridge.stop.mockReset().mockResolvedValue(undefined)
     bridge.ack.mockReset().mockResolvedValue(undefined)
@@ -47,6 +48,7 @@ describe.skipIf(!process.env.FORGETTIME_NATIVE_HOST_TESTS)('Android native PCM t
   afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
   it.each([44100, 48000])('retains original native PCM/attacks and reviews multiple bars after sample-clock silence at %i Hz', async rate => {
+    bridge.rate = rate
     const { result } = renderHook(() => usePractice(120, 'auto'))
     await act(() => result.current.listen())
     const callback = bridge.callbacks.get('audioFrame')!
