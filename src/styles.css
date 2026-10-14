@@ -108,3 +108,5 @@
 }
 
 .capture-controls{display:flex;gap:8px}.capture-controls .primary-button{flex:1;min-width:0}.capture-auto{border:1px solid #3b4b50;border-radius:13px;background:#26353a;color:#d8e4e4;min-width:64px;padding:12px;font-size:14px}.capture-auto[aria-pressed=true]{background:#c0ded4;color:#18302c}.capture-mode-note{text-align:center;color:#879398;font-size:11px;line-height:1.6;margin:10px 0 0}
+
+.waveform-review-controls{position:absolute;z-index:2;left:50%;bottom:7px;transform:translateX(-50%);display:flex;gap:3px;background:#10171de8;border:1px solid #3b4b50;border-radius:10px;padding:3px}.waveform-review-controls button{background:transparent;color:#d8e4e4;border:0;border-radius:6px;min-height:36px;min-width:36px;display:flex;align-items:center;justify-content:center;padding:5px 8px;font-size:11px;white-space:nowrap}.waveform-review-controls button:disabled{cursor:default;opacity:.3}.waveform-review-controls button:hover:not(:disabled){background:#32464b}

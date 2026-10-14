@@ -111,6 +111,117 @@ describe('live timing integration', () => {
     expect(result.current).toMatchObject({ source: 'off', captureMode: 'single' })
   })
 
+  it('retains actual PCM and original attacks, browses bars, and disables Auto for review', async () => {
+    const { result } = renderHook(() => usePractice(120, 'auto'))
+    await act(() => result.current.listen('auto'))
+    const rate = 48000
+    const detector = new OnsetDetector()
+    const pcm = new Float32Array(6 * rate)
+    for (const time of [0.1, 0.6, 1.1, 1.6, 2.1, 2.6, 3.1, 3.6]) {
+      for (let i = 0; i < 256; i++) pcm[Math.round(time * rate) + i] = (i % 2 ? -0.8 : 0.8) * Math.exp(-i / 100)
+    }
+    act(() => {
+      for (let startFrame = 0; startFrame < pcm.length; startFrame += 997) {
+        const samples = pcm.subarray(startFrame, startFrame + 997)
+        const onsets = detector.process(samples, startFrame / rate, rate)
+        callbacks.onFrame({ ...info, time: detector.processedThrough ?? 0, level: 0, onsets, pcm: { startFrame, samples } })
+      }
+    })
+    expect(result.current.recordedTake?.audio.samples.length).toBeGreaterThan(4 * rate)
+    const take = result.current.recordedTake!
+    expect(take.audio.samples).toEqual(pcm.slice(take.audio.startFrame, take.audio.startFrame + take.audio.samples.length))
+    expect(take.onsets).toHaveLength(8)
+    expect(take.results.length).toBeGreaterThan(0)
+    expect(result.current.reviewBarCount).toBe(3)
+    expect(result.current.reviewBarIndex).toBe(0) // last complete bar before final hit
+    expect(result.current.reviewBar?.waveform.hits).toHaveLength(4)
+    await act(() => result.current.nextBar())
+    expect(result.current.reviewBarIndex).toBe(1)
+    expect(result.current.reviewBar?.waveform.hits).toHaveLength(4)
+    expect(result.current).toMatchObject({ source: 'off', captureMode: 'single' })
+    await act(() => result.current.previousBar())
+    expect(result.current.reviewBarIndex).toBe(0)
+    expect(result.current.recordedTake).toBe(take)
+  })
+
+  it('retains signed PCM extrema and lets users inspect audio with no accepted hits', async () => {
+    const { result } = renderHook(() => usePractice(120, 'auto'))
+    await act(() => result.current.listen())
+    const samples = new Float32Array(3 * 48000).fill(0.25)
+    await act(async () => callbacks.onFrame({ ...info, time: 3, level: 0.25, onsets: [{ time: 0.1, strength: 0.8, confidence: 0.95 }], pcm: { startFrame: 0, samples } }))
+    expect(result.current.reviewBar?.waveform.min[0]).toBe(0.25)
+    expect(result.current.reviewBar?.complete).toBe(true)
+    // Only the genuine timeout endpoint is retained, not the rest of this late packet.
+    expect(result.current.recordedTake?.audio.samples.length).toBe(98400)
+  })
+
+  it('preserves only the latest take when a packet crosses a silence boundary', async () => {
+    const { result } = renderHook(() => usePractice(120, 'auto'))
+    await act(() => result.current.listen('auto'))
+    act(() => callbacks.onFrame({ ...info, time: 6, level: 0.8,
+      onsets: [0.1, 0.6, 3.1, 3.6].map(time => ({ time, strength: 0.8, confidence: 0.95 })),
+      pcm: { startFrame: 0, samples: new Float32Array(6 * 48000).fill(-0.25) },
+    }))
+    expect(result.current.recordedTake?.origin).toBe(3.1)
+    expect(result.current.recordedTake?.onsets.map(hit => hit.time)).toEqual([3.1, 3.6])
+    expect(result.current.recordedTake?.results.map(hit => hit.time)).toEqual([3.6])
+    expect(result.current.reviewBar?.waveform.max[0]).toBe(-0.25)
+  })
+
+  it('labels an interrupted partial take and never inserts PCM across an input gap', async () => {
+    const { result } = renderHook(() => usePractice(120, 'auto'))
+    await act(() => result.current.listen('auto'))
+    act(() => callbacks.onFrame({ ...info, time: 0.5, level: 0.8,
+      onsets: [{ time: 0.1, strength: 0.8, confidence: 0.95 }],
+      pcm: { startFrame: 0, samples: new Float32Array(24000).fill(0.25) },
+    }))
+    act(() => callbacks.onDiscontinuity?.())
+    const first = result.current.recordedTake!
+    expect(first.endReason).toBe('interrupted')
+    expect(result.current.reviewBar?.complete).toBe(false)
+    expect(result.current.reviewBar?.audio.samples.length).toBe(19200)
+    act(() => callbacks.onFrame({ ...info, time: 10.5, level: 0.8,
+      onsets: [{ time: 10.1, strength: 0.8, confidence: 0.95 }],
+      pcm: { startFrame: 480000, samples: new Float32Array(24000).fill(-0.25) },
+    }))
+    await act(() => result.current.stop())
+    const second = result.current.recordedTake!
+    expect(second.continuity).not.toBe(first.continuity)
+    expect(second.audio.samples.length).toBeLessThan(24000)
+    expect(second.onsets.map(hit => hit.time)).toEqual([10.1])
+  })
+
+  it('stops at the bounded recording limit and retains the valid take with a visible notice', async () => {
+    const { result } = renderHook(() => usePractice(120, 'auto'))
+    await act(() => result.current.listen('auto'))
+    const rate = 8000
+    await act(async () => {
+      for (let second = 0; second <= 120; second++) callbacks.onFrame({ ...info, sampleRate: rate, time: second + 1, level: 0.8,
+        onsets: [{ time: second + 0.1, strength: 0.8, confidence: 0.95 }],
+        pcm: { startFrame: second * rate, samples: new Float32Array(rate) },
+      })
+    })
+    expect(result.current).toMatchObject({ source: 'off', captureMode: 'single' })
+    expect(result.current.recordedTake?.endReason).toBe('limit')
+    expect(result.current.recordedTake?.audio.samples.length).toBe(120 * rate)
+    expect(result.current.recordingNotice).toContain('2-minute limit')
+    expect(result.current.reviewBarCount).toBe(60)
+  })
+
+  it('assigns a hit exactly on the bar boundary to the next bar', async () => {
+    const { result } = renderHook(() => usePractice(120, 'auto'))
+    await act(() => result.current.listen())
+    act(() => callbacks.onFrame({ ...info, time: 2.6, level: 0.8,
+      onsets: [0.1, 1.1, 2.1].map(time => ({ time, strength: 0.8, confidence: 0.95 })),
+      pcm: { startFrame: 0, samples: new Float32Array(124800) },
+    }))
+    await act(() => result.current.stop())
+    expect(result.current.reviewBar?.waveform.hits.map(hit => hit.time)).toEqual([0.1, 1.1])
+    await act(() => result.current.nextBar())
+    expect(result.current.reviewBar?.waveform.hits.map(hit => hit.time)).toEqual([2.1])
+    expect(result.current.reviewBar?.waveform.hits[0].position).toBe(0)
+  })
+
   it('updates and mutes output without resetting the beat, and keeps output failures separate from capture', async () => {
     const { result, rerender } = renderHook(({ enabled, thresholdMs }) => usePractice(120, 'auto', 50, { enabled, mode: 'always', thresholdMs }),
       { initialProps: { enabled: true, thresholdMs: 100 } })

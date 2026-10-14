@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TimingEngine, type InterpretationMode } from './engine'
 import { createAudioCapture, type CaptureInfo } from './capture'
 import { Capacitor } from '@capacitor/core'
@@ -9,9 +9,23 @@ import type { DetectedOnset } from './onset-detector'
 import { DEFAULT_METRONOME, MetronomeCoach, type MetronomeOptions } from './metronome'
 
 export type CaptureMode = 'single' | 'auto'
+import { TakeRecorder, recordedBar, recordedBarCount, initialReviewBar, type RecordedTake, type TakeEndReason } from './recorded-take'
 type Source = 'off' | 'microphone' | 'simulation'
 export function usePractice(bpm: number, mode: InterpretationMode, startSensitivity = DEFAULT_START_SENSITIVITY, metronomeOptions = DEFAULT_METRONOME) {
-  const engine = useRef(new TimingEngine({ bpm, mode, startSensitivity }))
+  const recorder = useRef(new TakeRecorder())
+  const engine = useRef(new TimingEngine({ bpm, mode, startSensitivity }, hit => recorder.current.resolve(hit)))
+  const [recordedTake, setRecordedTake] = useState<RecordedTake | null>(null)
+  const [reviewBarIndex, setReviewBarIndex] = useState(0)
+  const [recordingNotice, setRecordingNotice] = useState<string | null>(null)
+  const settings = useRef({ bpm, mode, startSensitivity })
+  const retainTake = useCallback((take: RecordedTake | null) => {
+    if (!take) return
+    setRecordedTake(take)
+    setReviewBarIndex(initialReviewBar(take))
+  }, [])
+  const finishTake = useCallback((reason: TakeEndReason, endTime?: number) => {
+    retainTake(recorder.current.finish(reason, endTime))
+  }, [retainTake])
   const waveformBuffer = useRef(new BarWaveformBuffer())
   const [waveform, setWaveform] = useState(emptyWaveform)
   const [waveformSource, setWaveformSource] = useState<'microphone' | 'simulation'>('microphone')
@@ -41,6 +55,8 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
     cancelAnimationFrame(animation.current)
     const previous = capture.current
     capture.current = null
+    if (keepReview) finishTake('stopped')
+    recorder.current.resetContinuity()
     engine.current.stop()
     coach.current.reset()
     setMetronomeActive(false)
@@ -55,7 +71,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
     setCaptureNotice(null)
     setSnapshot(engine.current.snapshot(now.current))
     await previous?.stop()
-  }, [])
+  }, [finishTake])
 
   useEffect(() => {
     if (Capacitor.isNativePlatform() || !navigator.mediaDevices?.enumerateDevices) return
@@ -75,6 +91,11 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
   }, [captureInfo])
 
   useEffect(() => {
+    if (settings.current.bpm !== bpm || settings.current.mode !== mode) {
+      finishTake('interrupted')
+      recorder.current.resetContinuity()
+    }
+    settings.current = { bpm, mode, startSensitivity }
     engine.current.configure({ bpm, mode, startSensitivity })
     setSnapshot(engine.current.snapshot(now.current))
   }, [bpm, mode, startSensitivity])
@@ -89,7 +110,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
   }, [bpm, mode, metronomeOptions.enabled, metronomeOptions.mode, metronomeOptions.thresholdMs])
 
   useEffect(() => {
-    const onVisibility = () => { if (document.hidden) void stop(false) }
+    const onVisibility = () => { if (document.hidden) { finishTake('interrupted'); void stop() } }
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
       document.removeEventListener('visibilitychange', onVisibility)
@@ -104,6 +125,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
     const activeGeneration = ++generation.current
     await stopping
     if (generation.current !== activeGeneration) return
+    setRecordingNotice(null)
     setCaptureMode(requestedMode)
     setWaveformSource('microphone')
     setBusy(true)
@@ -114,18 +136,33 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
       onFrame: frame => {
         if (generation.current !== activeGeneration) return
         now.current = frame.time
+        if (frame.pcm) {
+          const interrupted = recorder.current.append(frame.pcm, frame.sampleRate)
+          if (interrupted) {
+            retainTake(interrupted)
+            engine.current.start(frame.pcm.startFrame / frame.sampleRate)
+            coach.current.reset()
+            setCaptureNotice('Recording interrupted · a new take needs a fresh beat')
+          }
+        } else setRecordingNotice('Recorded bar review unavailable · update the mobile audio plugin')
         for (const onset of frame.onsets) {
-          // One packet can span the end of a take. A later onset must not
-          // silently reopen single capture before we inspect the watermark.
+          if (recorder.current.limitTime !== null && onset.time >= recorder.current.limitTime) break
           const deadline = engine.current.silenceDeadline
-          if (requestedMode === 'single' && deadline !== null && onset.time >= deadline - 1e-9) {
-            setWaveform(waveformBuffer.current.hold())
-            void stop()
-            return
+          if (deadline !== null && onset.time >= deadline - 1e-9) {
+            engine.current.snapshot(deadline)
+            finishTake('silence', deadline)
+            if (requestedMode === 'single') { void stop(); return }
           }
           engine.current.addOnset(onset)
+          const state = engine.current.snapshot(onset.time)
+          if (state.status === 'playing' && state.phaseOrigin === onset.time) {
+            setRecordedTake(null)
+            recorder.current.begin(onset.time, settings.current, frame.source)
+          }
+          if (state.lastHitTime === onset.time) recorder.current.accept(onset)
         }
         const next = engine.current.snapshot(frame.time)
+        if (next.status === 'paused') finishTake('silence', next.lastHitTime === null || next.lastHitTime === undefined ? frame.time : next.lastHitTime + 240 / next.bpm)
         const coaching = coach.current.update(next, frame.time, outputOptions.current)
         audio.setMetronome(coaching.plan)
         setMetronomeActive(Boolean(coaching.plan) && frame.metronomeAvailable !== false && !outputFailed.current)
@@ -136,10 +173,16 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
         setSnapshot(next)
         setCaptureNotice(notice => next.status === 'playing' ? null : notice ? 'Microphone input restored · play to set a fresh beat' : null)
         setLevel(frame.level)
-        if (next.status === 'paused' && requestedMode === 'single') void stop()
+        if (recorder.current.limitReached) {
+          finishTake('limit', recorder.current.limitTime!)
+          setRecordingNotice('Recording reached the 2-minute limit. Your take is available for review.')
+          void stop()
+        } else if (next.status === 'paused' && requestedMode === 'single') void stop()
       },
       onDiscontinuity: () => {
         if (generation.current !== activeGeneration) return
+        finishTake('interrupted')
+        recorder.current.resetContinuity()
         engine.current.start(now.current)
         coach.current.reset()
         audio.setMetronome(null)
@@ -152,10 +195,11 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
       onError: message => {
         if (generation.current !== activeGeneration) return
         setError(message instanceof Error ? message.message : String(message))
+        finishTake('interrupted')
         void stop()
       },
       onStopped: () => {
-        if (generation.current === activeGeneration) void stop()
+        if (generation.current === activeGeneration) { finishTake('interrupted'); void stop() }
       },
       onOutputError: message => {
         if (generation.current !== activeGeneration) return
@@ -180,7 +224,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
     } finally {
       if (generation.current === activeGeneration) setBusy(false)
     }
-  }, [stop, deviceId])
+  }, [stop, deviceId, finishTake, retainTake])
 
   const simulate = useCallback(async () => {
     await stop(false)
@@ -218,5 +262,11 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
     animation.current = requestAnimationFrame(tick)
   }, [bpm, stop])
 
-  return { snapshot, captureTime: now.current, waveform, waveformSource, source, captureMode, busy, error, captureInfo, captureNotice, outputNotice, metronomeActive, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
+  const reviewBarCount = recordedTake ? recordedBarCount(recordedTake) : 0
+  const reviewBar = useMemo(() => recordedTake ? recordedBar(recordedTake, reviewBarIndex) : null, [recordedTake, reviewBarIndex])
+  const reviewCurrentBar = useCallback(async () => { await stop() }, [stop])
+  const previousBar = useCallback(async () => { await stop(); setReviewBarIndex(index => Math.max(0, index - 1)) }, [stop])
+  const nextBar = useCallback(async () => { await stop(); setReviewBarIndex(index => Math.min(reviewBarCount - 1, index + 1)) }, [stop, reviewBarCount])
+
+  return { recordedTake, reviewBar, reviewBarIndex, reviewBarCount, previousBar, nextBar, reviewCurrentBar, recordingNotice, snapshot, captureTime: now.current, waveform, waveformSource, source, captureMode, busy, error, captureInfo, captureNotice, outputNotice, metronomeActive, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
 }

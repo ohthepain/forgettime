@@ -57,7 +57,7 @@ export class TimingEngine {
   private preferred: Subdivision = 'quarter';
   private nextId = 1;
 
-  constructor(options: TimingOptions) {
+  constructor(options: TimingOptions, private readonly onResolved?: (hit: ResolvedHit) => void) {
     this.assertBpm(options.bpm);
     this.bpm = options.bpm;
     this.mode = options.mode ?? 'auto';
@@ -209,7 +209,7 @@ export class TimingEngine {
       const tooFar = Math.abs(errorMs) > Math.min(70, intervalMs * 0.38);
       const reason = hit.ambiguous ?? (ambiguousGrid ? 'Rhythmic subdivision is ambiguous' : tooFar ? 'Attack falls between plausible subdivisions' : undefined);
       const confidence = reason ? Math.min(hit.confidence, 0.45) : clamp(hit.confidence * (1 - Math.abs(errorMs) / intervalMs), 0, 1);
-      this.resolved.push({
+      const result: ResolvedHit = {
         id: hit.id, time: hit.time,
         errorMs: reason ? null : errorMs,
         confidence, subdivision: best.candidate.name,
@@ -217,7 +217,9 @@ export class TimingEngine {
         // Flams, weak attacks and competing rhythms never become coaching evidence.
         guidance: !hit.ambiguous && !ambiguousGrid
           ? { intendedTime: hit.time - errorMs / 1000, errorMs } : undefined,
-      });
+      };
+      this.resolved.push(result);
+      this.onResolved?.(result);
     });
     this.resolved = this.resolved.slice(-128);
     this.preferred = best.candidate.name;

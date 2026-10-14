@@ -95,6 +95,7 @@ describe('browser capture recovery', () => {
     samples[650] = -0.7
     web.emit({ type: 'samples', startFrame: 48000, sampleRate: 48000, samples })
     const frame = onFrame.mock.calls[0][0]
+    expect(frame.pcm).toEqual({ startFrame: 48000, samples })
     expect(frame.onsets).toEqual([]) // Still in detector startup; the audio is nevertheless visible.
     expect(frame.waveform).toHaveLength(10)
     expect(frame.waveform[5]).toMatchObject({ time: 1.01, duration: 0.002, min: 0, max: expect.closeTo(0.9) })

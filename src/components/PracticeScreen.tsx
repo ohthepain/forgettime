@@ -27,6 +27,7 @@ export function PracticeScreen() {
   const running = source !== 'off'
   const playing = snapshot.status === 'playing'
   const showBeat = running && playing && snapshot.beat !== null
+  const review = !playing && source !== 'simulation' ? practice.reviewBar : null
   const inputProcessing = practice.captureInfo?.processing
   const hasInputProcessing = inputProcessing?.autoGainControl === true
     || inputProcessing?.echoCancellation === true || inputProcessing?.noiseSuppression === true
@@ -71,8 +72,9 @@ export function PracticeScreen() {
       </div>
       <div className="meter-scale"><span>−100 ms</span><span>0</span><span>+100 ms</span></div>
       <div className="result-area"><p className={latest?.uncertain ? 'result uncertain' : 'result'}>{detail}</p><p className="result-note">{latest?.uncertain ? 'No timing score for this hit' : playing ? 'Reference stays fixed as you play' : 'Let your hands do the talking'}</p></div>
-      <BarWaveform waveform={practice.waveform} source={source === 'off' && practice.waveform.review ? practice.waveformSource : source}
-        status={snapshot.status} startSensitivity={startSensitivity} />
+      <BarWaveform waveform={review?.waveform ?? practice.waveform} source={review ? 'microphone' : source === 'off' && practice.waveform.review ? practice.waveformSource : source}
+        status={snapshot.status} startSensitivity={startSensitivity}
+        review={review ? { index: practice.reviewBarIndex, count: practice.reviewBarCount, availableFraction: review.availableFraction, interrupted: review.endReason === 'interrupted', previous: () => void practice.previousBar(), next: () => void practice.nextBar(), select: () => void practice.reviewCurrentBar() } : undefined} />
       <div className="metronome-control">
         <div className="metronome-heading"><span className="small-label">METRONOME</span>
           <button className={`metronome-toggle ${practice.metronomeActive ? 'is-playing' : ''}`} aria-label="Metronome sound" aria-pressed={metronomeEnabled}
@@ -98,6 +100,7 @@ export function PracticeScreen() {
           onClick={() => void (practice.captureMode === 'auto' ? practice.stop() : practice.listen('auto'))}>Auto</button>
       </div>
       <p id="capture-mode-note" className="capture-mode-note">{practice.captureMode === 'auto' ? 'Auto · keeps listening between takes' : 'Single take · microphone stops after a full bar of silence'}</p>
+      {practice.recordingNotice && <p className="capture-notice" role="status">{practice.recordingNotice}</p>}
       {error && <p className="error-message" role="alert">{error}</p>}
       {practice.captureNotice && <p className="capture-notice" role="status">{practice.captureNotice}</p>}
       {practice.outputNotice && <p className="capture-notice" role="status">{practice.outputNotice}</p>}
@@ -107,7 +110,7 @@ export function PracticeScreen() {
       {source === 'simulation' && <p className="source-note demo-label">Generated hits · microphone is off</p>}
     </section>
     <footer className="app-footer"><span>Listen to your own time.</span>{!running && <button onClick={() => void practice.simulate()} disabled={busy}>Try a simulation <span aria-hidden="true">↗</span></button>}</footer>
-    {helpOpen && <section className="help-panel"><h2>Make room for the groove.</h2><p>Choose a tempo, enable the microphone, then play. Your first strong hit sets beat 1 immediately. The clock stays fixed, so drifting ahead or behind remains visible.</p><p>Auto considers straight and triplet rhythms across a short sequence. Straight uses eighths and sixteenths; Swing / triplet uses triplet subdivisions. Fills need a little interpretation time. Ambiguous attacks get no precise score.</p><p>Play the starting hit on your intended downbeat. The counter continues through gaps shorter than a full bar. After a full bar without a hit, a single take ends and the microphone stops. Choose Auto beside the microphone button to keep listening and start a fresh take with your next strong hit. Stop ends either mode. Use Start sensitivity in Settings to choose how firmly you need to play to begin; it does not change detection during the performance.</p><p>Audio is analysed on your device and is never uploaded or saved. Quiet hits under cymbals may be missed. Device timing accuracy still needs real-world calibration. Changing tempo or interpretation starts a fresh reference.</p></section>}
+    {helpOpen && <section className="help-panel"><h2>Make room for the groove.</h2><p>Choose a tempo, enable the microphone, then play. Your first strong hit sets beat 1 immediately. The clock stays fixed, so drifting ahead or behind remains visible.</p><p>Auto considers straight and triplet rhythms across a short sequence. Straight uses eighths and sixteenths; Swing / triplet uses triplet subdivisions. Fills need a little interpretation time. Ambiguous attacks get no precise score.</p><p>Play the starting hit on your intended downbeat. The counter continues through gaps shorter than a full bar. After a full bar without a hit, a single take ends and the microphone stops. Choose Auto beside the microphone button to keep listening and start a fresh take with your next strong hit. Stop ends either mode. Use Start sensitivity in Settings to choose how firmly you need to play to begin; it does not change detection during the performance.</p><p>Audio stays on your device. The latest take is held in memory for bar review, up to two minutes; a new take replaces it and closing the app discards it. Quiet hits under cymbals may be missed. Device timing accuracy still needs real-world calibration. Changing tempo or interpretation starts a fresh reference.</p></section>}
     {accountOpen && <AccountDialog onClose={() => setAccountOpen(false)} />}
     {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
   </main>

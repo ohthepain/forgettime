@@ -1,12 +1,14 @@
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { HIT_STRENGTH_COLORS, hitStrengthColor, WAVEFORM_COLUMNS, type BarWaveformSnapshot } from '../audio/bar-waveform'
 import type { TrackingStatus } from '../audio/engine'
 import { startingStrength } from '../audio/start-sensitivity'
 
-export function BarWaveform({ waveform, source, status, startSensitivity }: {
+export function BarWaveform({ waveform, source, status, startSensitivity, review }: {
   waveform: BarWaveformSnapshot
   source: 'off' | 'microphone' | 'simulation'
   status: TrackingStatus
   startSensitivity: number
+  review?: { index: number; count: number; availableFraction: number; interrupted: boolean; previous: () => void; next: () => void; select: () => void }
 }) {
   const playing = status === 'playing'
   const held = waveform.review !== null
@@ -22,13 +24,18 @@ export function BarWaveform({ waveform, source, status, startSensitivity }: {
     if (held || position <= (waveform.progress ?? 0)) current += segment
     else previous += segment
   }
-  const message = source === 'off' ? 'Play to see one bar of audio'
+  const message = held ? null : source === 'off' ? 'Play to see one bar of audio'
     : !hasReference ? 'Your first strong hit starts the bar'
     : !waveform.available ? 'Waveform unavailable · update the mobile app'
     : null
   return <section className="bar-waveform" aria-label="One-bar audio waveform">
-    <div className="waveform-heading"><span className="small-label">{held ? waveform.review === 'complete' ? 'LAST PLAYED BAR' : 'PARTIAL BAR' : 'ONE BAR'}</span><span className={source === 'simulation' ? 'demo-label' : ''}>{source === 'simulation' ? held ? 'SIMULATION · HELD' : 'SIMULATED AUDIO' : held ? 'HELD FOR REVIEW' : source === 'microphone' ? 'LIVE AUDIO' : 'WAVEFORM'}</span></div>
+    <div className="waveform-heading"><span className="small-label">{review ? waveform.review === 'complete' ? 'RECORDED BAR' : 'PARTIAL BAR' : held ? waveform.review === 'complete' ? 'LAST PLAYED BAR' : 'PARTIAL BAR' : 'ONE BAR'}</span><span className={source === 'simulation' ? 'demo-label' : ''}>{review ? 'RECORDED AUDIO' : source === 'simulation' ? held ? 'SIMULATION · HELD' : 'SIMULATED AUDIO' : held ? 'HELD FOR REVIEW' : source === 'microphone' ? 'LIVE AUDIO' : 'WAVEFORM'}</span></div>
     <div className="waveform-display">
+      {review && <div className="waveform-review-controls" role="group" aria-label="Recorded bar navigation">
+        <button aria-label="Previous bar" disabled={review.index === 0} onClick={review.previous}><ChevronLeft size={18} /></button>
+        <button aria-label={`Review bar ${review.index + 1} of ${review.count}`} onClick={review.select}>Bar {review.index + 1} / {review.count}</button>
+        <button aria-label="Next bar" disabled={review.index + 1 >= review.count} onClick={review.next}><ChevronRight size={18} /></button>
+      </div>}
       <div className="waveform-beats" aria-hidden="true">{[1, 2, 3, 4].map(beat => <span key={beat}>{beat}</span>)}</div>
       <svg className="waveform-plot" viewBox="0 0 512 112" preserveAspectRatio="none" role="img" aria-label={`${held ? 'Held audio from the playing section, aligned to beats 1 to 4.' : 'One bar from beat 1 to beat 4, overwritten from the left on each new bar.'} Colored markers show detected hits and their strength. Dashed lines show the current start level only.`}>
         {[0, 1, 2, 3].map(beat => <line className="waveform-beat-guide" key={beat} x1={x(beat / 4)} x2={x(beat / 4)} y1="0" y2="112" vectorEffect="non-scaling-stroke" />)}
@@ -41,6 +48,7 @@ export function BarWaveform({ waveform, source, status, startSensitivity }: {
           <line x1={x(hit.position)} x2={x(hit.position)} y1="12" y2="103" stroke={hitStrengthColor(hit.strength)} strokeDasharray={hit.confidence < 0.55 ? '3 3' : undefined} vectorEffect="non-scaling-stroke" />
           <circle cx={x(hit.position)} cy="9" r="3" fill={hitStrengthColor(hit.strength)} />
         </g>)}
+        {review && review.availableFraction < 1 && <rect x={x(review.availableFraction)} y="0" width={504 * (1 - review.availableFraction)} height="112" fill="#10161ecc"><title>No recorded audio in this portion</title></rect>}
         {playing && hasReference && <line className="waveform-playhead" x1={x(waveform.progress!)} x2={x(waveform.progress!)} y1="0" y2="112" vectorEffect="non-scaling-stroke" />}
       </svg>
       {message && <p className="waveform-placeholder">{message}</p>}
@@ -48,6 +56,8 @@ export function BarWaveform({ waveform, source, status, startSensitivity }: {
     <div className="waveform-legend" aria-label="Detected hit strength from soft to hard">{HIT_STRENGTH_COLORS.map(band => <span key={band.label}><i style={{ background: band.color }} aria-hidden="true" />{band.label}</span>)}</div>
     <p className="waveform-note">Detected hits · colour shows input strength</p>
     {hasReference && <p className="waveform-note waveform-threshold-note">Dashed lines: start level · {Math.round(threshold * 100)}% input peak.<br />Only gates the first hit; transient checks also apply.</p>}
-    {held && <p className="waveform-note">{waveform.review === 'complete' ? `${waveform.hits.length} detected hits · last complete bar before your final hit.` : 'Short take · play through a full bar for a complete review.'}</p>}
+    {review?.interrupted && <p className="waveform-note">Input interrupted · this take ends before the gap.</p>}
+    {review && <p className="waveform-note">{waveform.hits.length} original detected hits · {waveform.review === 'partial' ? 'partial recorded bar' : 'complete recorded bar'}. {review.availableFraction < 1 ? 'Shaded area was not recorded.' : ''}</p>}
+    {held && !review && <p className="waveform-note">{waveform.review === 'complete' ? `${waveform.hits.length} detected hits · last complete bar before your final hit.` : 'Short take · play through a full bar for a complete review.'}</p>}
   </section>
 }

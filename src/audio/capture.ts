@@ -1,5 +1,6 @@
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core'
 import { ForgettimeAudio } from 'forgettime-audio'
+import type { CapturedPcm } from './recorded-take'
 import { OnsetDetector, type DetectedOnset } from './onset-detector'
 import { WaveformEnvelopeCapture, type WaveformEnvelope } from './waveform-envelope'
 import type { MetronomePlan } from './metronome'
@@ -27,6 +28,8 @@ export interface CaptureFrame extends CaptureInfo {
   /** Captured 2 ms min/max envelopes; optional for older native plugin builds. */
   waveform?: WaveformEnvelope[]
   metronomeAvailable?: boolean
+  /** Optional retained audio, on the same sample clock as onset timestamps. */
+  pcm?: CapturedPcm
 }
 
 export interface CaptureCallbacks {
@@ -225,6 +228,7 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
               time: detector.processedThrough ?? time,
               onsets, level: Math.min(1, Math.sqrt(energy / samples.length)), sampleRate,
               waveform: waveform.process(samples, time, sampleRate),
+              pcm: { startFrame, samples },
               source: 'web', timestampQuality: 'sample-clock',
             })
           }
