@@ -67,3 +67,23 @@ it('overlays accessible bar navigation and stops Auto when reviewing retained au
   expect(screen.getByRole('button', { name: 'Auto capture' }).getAttribute('aria-pressed')).toBe('false')
   expect(screen.getByText('RECORDED AUDIO')).toBeDefined()
 })
+
+it('reveals real PCM candidates without moving existing hits or reopening capture', async () => {
+  const { OnsetDetector } = await import('../audio/onset-detector')
+  const detector = new OnsetDetector()
+  const view = render(<PracticeScreen />)
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Enable microphone' })))
+  const rate = 48000
+  const samples = new Float32Array(rate)
+  for (const [time, amplitude] of [[0.1, 0.8], [0.6, 0.003]]) for (let i = 0; i < 128; i++) samples[Math.round(time * rate) + i] = i % 2 ? -amplitude : amplitude
+  const onsets = detector.process(samples, 0, rate)
+  act(() => callbacks.onFrame({ ...info, time: detector.processedThrough!, level: 0, onsets, pcm: { startFrame: 0, samples }, diagnostics: detector.drainDiagnostics() }))
+  const positions = [...view.container.querySelectorAll('.waveform-hit')].map(hit => hit.getAttribute('data-position'))
+  fireEvent.click(screen.getByRole('button', { name: 'Detection details' }))
+  expect(screen.getAllByRole('button', { name: /Inspect candidate/ }).length).toBeGreaterThan(0)
+  expect([...view.container.querySelectorAll('.waveform-hit')].map(hit => hit.getAttribute('data-position'))).toEqual(positions)
+  expect(capture.create).toHaveBeenCalledOnce()
+  expect(released).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: 'Detection details' }))
+  expect(view.container.querySelector('.waveform-candidate')).toBeNull()
+})

@@ -221,3 +221,50 @@ describe('captured-audio transient detection (synthetic fixtures)', () => {
     expect(engine.snapshot(detector.processedThrough!).phaseOrigin).toBe(firstOrigin);
   });
 });
+
+describe('versioned detector decisions from source PCM', () => {
+  it('reports attempted attacks with applicable measured rejection reasons, not silent analysis windows', () => {
+    const detector = new OnsetDetector()
+    const amplitudes = [...Array(20).fill(0), 0.003, ...Array(20).fill(0), 0.04, 0.045, 0.1, ...Array(20).fill(0)]
+    const pcm = Float32Array.from(amplitudes.flatMap(amplitude => Array.from({ length: 128 }, (_, i) => (i % 2 ? -1 : 1) * amplitude)))
+    const onsets = detector.process(pcm, 0, rate)
+    const diagnostics = detector.drainDiagnostics()
+    expect(diagnostics.candidates).toHaveLength(4)
+    expect(diagnostics.candidates[0]).toMatchObject({ accepted: false, reasons: expect.arrayContaining(['level', 'rise', 'contrast']) })
+    expect(diagnostics.candidates[1].accepted).toBe(true)
+    expect(diagnostics.candidates[2].reasons).toEqual(expect.arrayContaining(['separation', 'rearming', 'rise']))
+    expect(diagnostics.candidates[2].measurements).toMatchObject({ armed: false, minimumRatio: 1.55, minimumSeparationMs: 18 })
+    expect(diagnostics.candidates.filter(candidate => candidate.accepted).map(candidate => candidate.time)).toEqual(onsets.map(hit => hit.time))
+    expect(detector.drainDiagnostics()).toEqual({ candidates: [], dropped: 0 })
+  })
+
+  it('preserves default detections regardless of inspection/drain cadence and caps undrained diagnostics explicitly', async () => {
+    const { DEFAULT_DETECTOR_SETTINGS, MAX_DIAGNOSTIC_CANDIDATES } = await import('./detector-contract')
+    const pcm = Float32Array.from({ length: 12 * rate }, (_, i) => Math.floor(i / 128) % 2 ? (i % 2 ? -0.1 : 0.1) : 0)
+    const inspected = new OnsetDetector(DEFAULT_DETECTOR_SETTINGS)
+    const all = new OnsetDetector()
+    const hits: DetectedOnset[] = []
+    let attempts = 0
+    for (let cursor = 0; cursor < pcm.length; cursor += 997) {
+      hits.push(...inspected.process(pcm.subarray(cursor, cursor + 997), cursor / rate, rate))
+      attempts += inspected.drainDiagnostics().candidates.length
+    }
+    expect(all.process(pcm, 0, rate)).toEqual(hits)
+    const diagnostics = all.drainDiagnostics()
+    expect(diagnostics.candidates).toHaveLength(MAX_DIAGNOSTIC_CANDIDATES)
+    expect(diagnostics.dropped).toBe(attempts - MAX_DIAGNOSTIC_CANDIDATES)
+    expect(diagnostics.dropped).toBeGreaterThan(0)
+  })
+
+  it('applies supported control endpoints to level, contrast, separation and level recovery', async () => {
+    const { DEFAULT_DETECTOR_SETTINGS } = await import('./detector-contract')
+    const pulse = fixture(0.5, [{ time: 0.1, amplitude: 0.05, decay: 0.002 }, { time: 0.15, amplitude: 0.05, decay: 0.002 }])
+    const run = (patch: Partial<typeof DEFAULT_DETECTOR_SETTINGS>, samples = pulse) => new OnsetDetector({ ...DEFAULT_DETECTOR_SETTINGS, ...patch }).process(samples, 0, rate)
+    expect(run({ minimumRms: 0.001 }).length).toBeGreaterThan(run({ minimumRms: 0.1 }).length)
+    expect(run({ contrastRatio: 1.1 }).length).toBeGreaterThan(run({ contrastRatio: 4 }).length)
+    const separation = fixture(0.5, [{ time: 0.1, amplitude: 0.8, decay: 0.002 }, { time: 0.15, amplitude: 0.8, decay: 0.002 }])
+    expect(run({ minSeparationMs: 8 }, separation).length).toBeGreaterThan(run({ minSeparationMs: 100 }, separation).length)
+    const recovery = levelRecoveryFixture(rate).samples
+    expect(run({ recoverySeconds: 0.25 }, recovery).length).toBeGreaterThan(run({ recoverySeconds: 12 }, recovery).length)
+  })
+})

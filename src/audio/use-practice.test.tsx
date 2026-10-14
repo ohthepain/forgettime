@@ -144,6 +144,55 @@ describe('live timing integration', () => {
     expect(result.current.recordedTake).toBe(take)
   })
 
+  it('retains original detector candidates separately from acquisition gating and live settings edits', async () => {
+    const { result } = renderHook(() => usePractice(120, 'straight', 0))
+    await act(() => result.current.listen('auto'))
+    const detector = new OnsetDetector()
+    const rate = 48000
+    const pcm = new Float32Array(3 * rate)
+    for (const [time, amplitude] of [[0.1, 0.04], [0.6, 0.8], [1.1, 0.03]]) {
+      for (let i = 0; i < 256; i++) pcm[Math.round(time * rate) + i] = (i % 2 ? -amplitude : amplitude) * Math.exp(-i / 100)
+    }
+    act(() => {
+      for (let startFrame = 0; startFrame < pcm.length; startFrame += 997) {
+        const samples = pcm.subarray(startFrame, startFrame + 997)
+        const onsets = detector.process(samples, startFrame / rate, rate)
+        callbacks.onFrame({ ...info, time: detector.processedThrough ?? 0, level: 0, onsets, pcm: { startFrame, samples }, diagnostics: detector.drainDiagnostics() })
+      }
+    })
+    expect(result.current.liveDiagnostics.candidates.some(candidate => candidate.accepted && candidate.acquisition === 'below-start-level')).toBe(true)
+    const origin = result.current.snapshot.phaseOrigin
+    await act(() => result.current.configureDetector({ minSeparationMs: 100 }))
+    expect(result.current.snapshot.phaseOrigin).toBe(origin)
+    await act(() => result.current.stop())
+    const take = result.current.recordedTake!
+    expect(take.settings.detector?.minSeparationMs).toBe(18)
+    expect(take.diagnostics?.candidates.some(candidate => candidate.accepted && candidate.acquisition === 'started')).toBe(true)
+    expect(take.diagnostics?.dropped).toBe(0)
+  })
+
+  it('preserves valid take audio while explicitly reporting capped original diagnostics', async () => {
+    const { result } = renderHook(() => usePractice(120, 'straight', 100))
+    await act(() => result.current.listen('auto'))
+    const rate = 8000
+    const detector = new OnsetDetector()
+    const pcm = Float32Array.from({ length: 20 * rate }, (_, i) => Math.floor(i / 32) % 2 ? (i % 2 ? -0.01 : 0.01) : 0)
+    for (let second = 0; second < 20; second++) for (let i = 0; i < 32; i++) pcm[Math.round((second + 0.1) * rate) + i] = i % 2 ? -0.8 : 0.8
+    act(() => {
+      for (let startFrame = 0; startFrame < pcm.length; startFrame += 997) {
+        const samples = pcm.subarray(startFrame, startFrame + 997)
+        const onsets = detector.process(samples, startFrame / rate, rate)
+        callbacks.onFrame({ ...info, sampleRate: rate, time: detector.processedThrough ?? 0, level: 0, onsets, pcm: { startFrame, samples }, diagnostics: detector.drainDiagnostics() })
+      }
+    })
+    await act(() => result.current.stop())
+    expect(result.current.recordedTake!.diagnostics!.candidates).toHaveLength(2048)
+    expect(result.current.recordedTake!.diagnostics!.dropped).toBeGreaterThan(0)
+    expect(result.current.recordedTake!.audio.samples.length).toBeGreaterThan(19 * rate)
+    expect(result.current.liveDiagnostics.candidates).toHaveLength(2048)
+    expect(result.current.liveDiagnostics.dropped).toBeGreaterThan(0)
+  })
+
   it('retains signed PCM extrema and lets users inspect audio with no accepted hits', async () => {
     const { result } = renderHook(() => usePractice(120, 'auto'))
     await act(() => result.current.listen())
