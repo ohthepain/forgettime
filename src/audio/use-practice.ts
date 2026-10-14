@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TimingEngine, type InterpretationMode } from './engine'
 import { createAudioCapture, type CaptureInfo } from './capture'
 import { Capacitor } from '@capacitor/core'
+import { BrowserBarReplay, type ReplayState } from './replay'
 import { DEFAULT_START_SENSITIVITY } from './start-sensitivity'
 import { BarWaveformBuffer, emptyWaveform } from './bar-waveform'
 import { simulationWaveform } from './simulation-waveform'
@@ -10,8 +11,10 @@ import { DEFAULT_METRONOME, MetronomeCoach, type MetronomeOptions } from './metr
 
 export type CaptureMode = 'single' | 'auto'
 import { TakeRecorder, recordedBar, recordedBarCount, initialReviewBar, type RecordedTake, type TakeEndReason } from './recorded-take'
-type Source = 'off' | 'microphone' | 'simulation'
+type Source = 'off' | 'microphone' | 'simulation' | 'replay'
 export function usePractice(bpm: number, mode: InterpretationMode, startSensitivity = DEFAULT_START_SENSITIVITY, metronomeOptions = DEFAULT_METRONOME) {
+  const replay = useRef<BrowserBarReplay | null>(null)
+  const [replayState, setReplayState] = useState<ReplayState | null>(null)
   const recorder = useRef(new TakeRecorder())
   const engine = useRef(new TimingEngine({ bpm, mode, startSensitivity }, hit => recorder.current.resolve(hit)))
   const [recordedTake, setRecordedTake] = useState<RecordedTake | null>(null)
@@ -53,6 +56,8 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
   const stop = useCallback(async (keepReview = true) => {
     generation.current++
     cancelAnimationFrame(animation.current)
+    const previousReplay = replay.current
+    replay.current = null
     const previous = capture.current
     capture.current = null
     if (keepReview) finishTake('stopped')
@@ -70,7 +75,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
     setCaptureInfo(null)
     setCaptureNotice(null)
     setSnapshot(engine.current.snapshot(now.current))
-    await previous?.stop()
+    await Promise.all([previous?.stop(), previousReplay?.stop()])
   }, [finishTake])
 
   useEffect(() => {
@@ -96,6 +101,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
       recorder.current.resetContinuity()
     }
     settings.current = { bpm, mode, startSensitivity }
+    if (replay.current) return
     engine.current.configure({ bpm, mode, startSensitivity })
     setSnapshot(engine.current.snapshot(now.current))
   }, [bpm, mode, startSensitivity])
@@ -104,6 +110,8 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
 
   useEffect(() => {
     outputOptions.current = metronomeOptions
+    replay.current?.setMetronome(metronomeOptions)
+    if (replay.current) return
     const state = coach.current.update(engine.current.snapshot(now.current), now.current, metronomeOptions)
     capture.current?.setMetronome(state.plan)
     setMetronomeActive(Boolean(state.plan) && !outputFailed.current)
@@ -117,6 +125,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
       generation.current++
       cancelAnimationFrame(animation.current)
       void capture.current?.stop()
+      void replay.current?.stop()
     }
   }, [stop])
 
@@ -125,6 +134,8 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
     const activeGeneration = ++generation.current
     await stopping
     if (generation.current !== activeGeneration) return
+    setReplayState(null)
+    engine.current.configure(settings.current)
     setRecordingNotice(null)
     setCaptureMode(requestedMode)
     setWaveformSource('microphone')
@@ -228,6 +239,8 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
 
   const simulate = useCallback(async () => {
     await stop(false)
+    setReplayState(null)
+    engine.current.configure(settings.current)
     setWaveformSource('simulation')
     setError(null)
     setSource('simulation')
@@ -264,9 +277,49 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
 
   const reviewBarCount = recordedTake ? recordedBarCount(recordedTake) : 0
   const reviewBar = useMemo(() => recordedTake ? recordedBar(recordedTake, reviewBarIndex) : null, [recordedTake, reviewBarIndex])
+  const playBar = useCallback(async (index = reviewBarIndex) => {
+    if (!recordedTake) return
+    const stopping = stop()
+    const activeGeneration = ++generation.current
+    await stopping
+    if (generation.current !== activeGeneration) return
+    setError(null)
+    setReplayState(null)
+    setReviewBarIndex(index)
+    if (Capacitor.isNativePlatform()) { setError('Recorded playback requires an updated native audio plugin.'); return }
+    try {
+      const output = new BrowserBarReplay(recordedTake, index, state => {
+        if (generation.current !== activeGeneration) return
+        now.current = state.time
+        setReplayState(state)
+        setMetronomeActive(state.metronomeActive)
+        setSnapshot(state.snapshot)
+      }, message => {
+        if (generation.current !== activeGeneration) return
+        setError(message)
+        void stop()
+      })
+      replay.current = output
+      output.setMetronome(outputOptions.current)
+      await output.start()
+      if (generation.current !== activeGeneration) { await output.stop(); return }
+      setSource('replay')
+    } catch (cause) {
+      if (generation.current !== activeGeneration) return
+      setError(cause instanceof Error ? cause.message : 'Recorded playback could not start.')
+      await stop()
+    }
+  }, [recordedTake, reviewBarIndex, stop])
+  // Settings controls call this boundary to begin an equivalent fresh run.
+  const restartReplay = useCallback(async () => { if (replay.current) await playBar() }, [playBar])
   const reviewCurrentBar = useCallback(async () => { await stop() }, [stop])
-  const previousBar = useCallback(async () => { await stop(); setReviewBarIndex(index => Math.max(0, index - 1)) }, [stop])
-  const nextBar = useCallback(async () => { await stop(); setReviewBarIndex(index => Math.min(reviewBarCount - 1, index + 1)) }, [stop, reviewBarCount])
+  const selectBar = useCallback(async (index: number) => {
+    if (index === reviewBarIndex) return
+    if (replay.current && recordedTake && recordedBar(recordedTake, index).complete) await playBar(index)
+    else { await stop(); setReplayState(null); setReviewBarIndex(index) }
+  }, [reviewBarIndex, recordedTake, playBar, stop])
+  const previousBar = useCallback(() => selectBar(Math.max(0, reviewBarIndex - 1)), [selectBar, reviewBarIndex])
+  const nextBar = useCallback(() => selectBar(Math.min(reviewBarCount - 1, reviewBarIndex + 1)), [selectBar, reviewBarCount, reviewBarIndex])
 
-  return { recordedTake, reviewBar, reviewBarIndex, reviewBarCount, previousBar, nextBar, reviewCurrentBar, recordingNotice, snapshot, captureTime: now.current, waveform, waveformSource, source, captureMode, busy, error, captureInfo, captureNotice, outputNotice, metronomeActive, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
+  return { playBar, restartReplay, replayState, recordedTake, reviewBar, reviewBarIndex, reviewBarCount, previousBar, nextBar, reviewCurrentBar, recordingNotice, snapshot, captureTime: now.current, waveform, waveformSource, source, captureMode, busy, error, captureInfo, captureNotice, outputNotice, metronomeActive, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
 }

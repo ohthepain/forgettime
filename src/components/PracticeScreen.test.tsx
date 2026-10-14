@@ -5,6 +5,7 @@ import { PracticeScreen } from './PracticeScreen'
 import { usePreferences } from '../lib/preferences'
 import { usePractice } from '../audio/use-practice'
 import { TimingEngine, type ResolvedHit } from '../audio/engine'
+import { recordedBar, type RecordedTake } from '../audio/recorded-take'
 import { emptyWaveform } from '../audio/bar-waveform'
 
 vi.mock('../audio/use-practice', () => ({ usePractice: vi.fn() }))
@@ -12,6 +13,7 @@ vi.mock('./AccountDialog', () => ({ AccountDialog: () => null }))
 
 function practice(): ReturnType<typeof usePractice> {
   return {
+    playBar: vi.fn(), restartReplay: vi.fn(), replayState: null,
     recordedTake: null, reviewBar: null, reviewBarIndex: 0, reviewBarCount: 0, recordingNotice: null,
     previousBar: vi.fn(), nextBar: vi.fn(), reviewCurrentBar: vi.fn(),
     snapshot: new TimingEngine({ bpm: 100 }).snapshot(0), captureTime: 0, source: 'off', captureMode: 'single', busy: false,
@@ -101,4 +103,23 @@ describe('practice screen integration', () => {
     fireEvent(line, new Event('AnimationEvent' in window ? 'animationend' : 'webkitAnimationEnd', { bubbles: true }))
     expect(container.querySelector('.hit-line')).toBeNull()
   })
+})
+
+it('offers waveform loop playback, identifies replay, and preserves original/current comparison', () => {
+  const take: RecordedTake = { audio: { samples: new Float32Array(96000), startFrame: 0, sampleRate: 48000 }, source: 'web', continuity: 0, origin: 0, settings: { bpm: 120, mode: 'straight', startSensitivity: 50 }, onsets: [], results: [], endReason: 'stopped' }
+  state = { ...practice(), recordedTake: take, reviewBar: recordedBar(take, 0), reviewBarCount: 1 }
+  vi.mocked(usePractice).mockImplementation(() => state)
+  const { rerender } = render(<PracticeScreen />)
+  fireEvent.click(screen.getByRole('button', { name: 'Loop recorded bar' }))
+  expect(state.playBar).toHaveBeenCalled()
+  state = { ...state, source: 'replay', snapshot: { ...state.snapshot, bpm: 120, status: 'playing', phaseOrigin: 0, beat: 1 }, replayState: { metronomeActive: false, run: 1, iteration: 1, time: 2, progress: 0, snapshot: state.snapshot, onsets: [], results: [] } }
+  rerender(<PracticeScreen />)
+  expect(screen.getByText('BAR REPLAY')).toBeDefined()
+  expect(screen.getByText(/Fresh looping state can differ/)).toBeDefined()
+  expect(screen.getByRole('button', { name: 'Original capture' })).toBeDefined()
+  expect(screen.getByRole('button', { name: 'Current loop' })).toBeDefined()
+  expect((screen.getByRole('button', { name: 'Auto capture' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('spinbutton') as HTMLInputElement).disabled).toBe(true)
+  fireEvent.click(screen.getByRole('button', { name: 'Pause recorded bar' }))
+  expect(state.stop).toHaveBeenCalled()
 })

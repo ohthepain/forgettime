@@ -18,6 +18,7 @@ const METRONOME_MODES: { value: MetronomeMode; label: string }[] = [
 ]
 export function PracticeScreen() {
   const { bpm, mode, startSensitivity, setBpm, setMode, metronomeEnabled, metronomeMode, helpThresholdMs, setMetronomeEnabled, setMetronomeMode } = usePreferences()
+  const [currentComparison, setCurrentComparison] = useState(true)
   const [tempoText, setTempoText] = useState(String(bpm))
   const [accountOpen, setAccountOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
@@ -27,14 +28,19 @@ export function PracticeScreen() {
   const running = source !== 'off'
   const playing = snapshot.status === 'playing'
   const showBeat = running && playing && snapshot.beat !== null
-  const review = !playing && source !== 'simulation' ? practice.reviewBar : null
+  const review = (source === 'replay' || !playing) && source !== 'simulation' ? practice.reviewBar : null
+  const replay = practice.replayState
+  const currentHits = replay?.onsets.filter(hit => hit.iteration === replay.iteration) ?? []
+  const currentResults = replay?.results.filter(hit => hit.iteration === replay.iteration) ?? []
+  const originalResults = review ? practice.recordedTake?.results.filter(hit => hit.time >= review.start && hit.time < review.end) ?? [] : []
+  const reviewWaveform = review ? { ...review.waveform, progress: source === 'replay' && replay ? replay.progress : review.waveform.progress, hits: currentComparison && replay ? currentHits : review.waveform.hits } : null
   const inputProcessing = practice.captureInfo?.processing
   const hasInputProcessing = inputProcessing?.autoGainControl === true
     || inputProcessing?.echoCancellation === true || inputProcessing?.noiseSuppression === true
   const presented = usePresentedHits(snapshot.hits, playing)
   useEffect(() => { void usePreferences.persist.rehydrate() }, [])
   useEffect(() => { setTempoText(String(bpm)) }, [bpm])
-  const status = busy ? 'Opening microphone…' : snapshot.status === 'playing' ? `Playing · ${bpm} BPM locked`
+  const status = source === 'replay' ? `Loop ${(replay?.iteration ?? 0) + 1} · ${snapshot.bpm} BPM fixed` : busy ? 'Opening microphone…' : snapshot.status === 'playing' ? `Playing · ${bpm} BPM locked`
     : snapshot.status === 'paused' ? 'Paused · listening for you'
     : snapshot.status === 'listening' ? 'Listening · play your first hit' : 'Your tempo. Your time.'
   const latest = snapshot.hits.at(-1)
@@ -52,12 +58,12 @@ export function PracticeScreen() {
       <div className="header-actions"><button className="icon-button" onClick={() => setHelpOpen(!helpOpen)} aria-label="How it works" aria-expanded={helpOpen}><CircleHelp size={19} /></button><button className="icon-button" onClick={() => setAccountOpen(true)} aria-label="Your account"><UserRound size={19} /></button><button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label="Settings" aria-haspopup="dialog" aria-expanded={settingsOpen}><Settings size={19} /></button></div>
     </header>
     <section className="tempo-card" aria-label="Drum timing practice">
-      <div className="card-heading"><h1>Tempo</h1><span className={source === 'simulation' ? 'practice-label demo-label' : 'practice-label'}>{source === 'simulation' ? 'SIMULATION' : 'MIC PRACTICE'}</span></div>
+      <div className="card-heading"><h1>Tempo</h1><span className={source === 'simulation' ? 'practice-label demo-label' : 'practice-label'}>{source === 'simulation' ? 'SIMULATION' : source === 'replay' ? 'BAR REPLAY' : 'MIC PRACTICE'}</span></div>
       <div className="tempo-row">
-        <div className="bpm-control"><input id="bpm" aria-label="Tempo in beats per minute" inputMode="numeric" type="number" min={30} max={300} step={1} value={tempoText} disabled={busy || source === 'simulation'} onChange={event => setTempoText(event.target.value)} onBlur={commitTempo} onKeyDown={event => { if (event.key === 'Enter') { commitTempo(); event.currentTarget.blur() } }} /><label htmlFor="bpm">BPM</label></div>
+        <div className="bpm-control"><input id="bpm" aria-label="Tempo in beats per minute" inputMode="numeric" type="number" min={30} max={300} step={1} value={source === 'replay' ? snapshot.bpm : tempoText} disabled={busy || source === 'simulation' || source === 'replay'} onChange={event => setTempoText(event.target.value)} onBlur={commitTempo} onKeyDown={event => { if (event.key === 'Enter') { commitTempo(); event.currentTarget.blur() } }} /><label htmlFor="bpm">BPM</label></div>
         <div className={`beat-counter ${showBeat ? 'is-visible' : ''}`} role="timer" aria-live="off" aria-hidden={!showBeat} aria-label={showBeat ? `Beat ${snapshot.beat} of 4` : undefined}>
           <div className="beat-current"><span className="beat-number">
-            <BeatPendulum time={practice.captureTime} origin={snapshot.phaseOrigin} bpm={bpm} active={showBeat} />
+            <BeatPendulum time={practice.captureTime} origin={snapshot.phaseOrigin} bpm={snapshot.bpm} active={showBeat} />
             <span className="beat-number-value">{snapshot.beat ?? 1}</span>
           </span><span className="beat-caption">BEAT<br />OF 4</span></div>
           <div className="beat-dots" aria-hidden="true">{[1, 2, 3, 4].map(beat => <i key={beat} className={snapshot.beat === beat ? 'active' : ''} />)}</div>
@@ -72,9 +78,19 @@ export function PracticeScreen() {
       </div>
       <div className="meter-scale"><span>−100 ms</span><span>0</span><span>+100 ms</span></div>
       <div className="result-area"><p className={latest?.uncertain ? 'result uncertain' : 'result'}>{detail}</p><p className="result-note">{latest?.uncertain ? 'No timing score for this hit' : playing ? 'Reference stays fixed as you play' : 'Let your hands do the talking'}</p></div>
-      <BarWaveform waveform={review?.waveform ?? practice.waveform} source={review ? 'microphone' : source === 'off' && practice.waveform.review ? practice.waveformSource : source}
+      <BarWaveform waveform={reviewWaveform ?? practice.waveform} source={source === 'replay' ? 'replay' : review ? 'microphone' : source === 'off' && practice.waveform.review ? practice.waveformSource : source}
         status={snapshot.status} startSensitivity={startSensitivity}
-        review={review ? { index: practice.reviewBarIndex, count: practice.reviewBarCount, availableFraction: review.availableFraction, interrupted: review.endReason === 'interrupted', previous: () => void practice.previousBar(), next: () => void practice.nextBar(), select: () => void practice.reviewCurrentBar() } : undefined} />
+        review={review ? { index: practice.reviewBarIndex, count: practice.reviewBarCount, availableFraction: review.availableFraction, interrupted: review.endReason === 'interrupted', previous: () => void practice.previousBar(), next: () => void practice.nextBar(), select: () => void practice.reviewCurrentBar(), loop: () => void (source === 'replay' ? practice.stop() : practice.playBar()), canLoop: review.complete && !busy } : undefined}
+        comparison={review && replay ? { current: currentComparison, select: setCurrentComparison } : undefined} />
+      {review && replay && <div className="replay-results">
+        <table aria-label="Original and current timing comparison"><thead><tr><th>Analysis</th><th>Detected</th><th>Scored</th><th>Uncertain</th></tr></thead><tbody>
+          <tr><th>Original</th><td>{review.waveform.hits.length}</td><td>{originalResults.filter(hit => !hit.uncertain).length}</td><td>{originalResults.filter(hit => hit.uncertain).length}</td></tr>
+          <tr><th>Loop {replay.iteration + 1}</th><td>{currentHits.length}</td><td>{currentResults.filter(hit => !hit.uncertain).length}</td><td>{currentResults.filter(hit => hit.uncertain).length}</td></tr>
+        </tbody></table>
+        <details><summary>Timing results</summary><p>Original: {originalResults.map(hit => hit.uncertain ? 'uncertain' : `${Math.round(hit.errorMs!)} ms`).join(', ') || 'No scored hits'}</p>
+          <p>Current: {replay.results.map(hit => `Loop ${hit.iteration + 1}: ${hit.uncertain ? 'uncertain' : `${Math.round(hit.errorMs!)} ms`}`).join(', ') || 'Waiting for resolved hits'}</p></details>
+        <p className="waveform-note">Fresh looping state can differ from original capture. Later repetitions may settle differently; loop joins can add attacks.</p>
+      </div>}
       <div className="metronome-control">
         <div className="metronome-heading"><span className="small-label">METRONOME</span>
           <button className={`metronome-toggle ${practice.metronomeActive ? 'is-playing' : ''}`} aria-label="Metronome sound" aria-pressed={metronomeEnabled}
@@ -86,14 +102,14 @@ export function PracticeScreen() {
           ? `First bar, then help after 4 beats beyond ±${helpThresholdMs} ms` : metronomeMode === 'always' ? 'Keeps the beat until you pause' : 'Your first hit sets beat 1; the click joins on beat 2'}</p>
         {metronomeEnabled && source !== 'simulation' && <p className="metronome-note">Use headphones so the microphone hears your playing, not the click.</p>}
       </div>
-      <div className="interpretation"><span className="small-label">INTERPRETATION</span><div className="mode-control" role="group" aria-label="Rhythm interpretation">{MODES.map(item => <button key={item.value} aria-pressed={mode === item.value} onClick={() => setMode(item.value)} disabled={busy || source === 'simulation'}>{item.label}</button>)}</div></div>
+      <div className="interpretation"><span className="small-label">INTERPRETATION</span><div className="mode-control" role="group" aria-label="Rhythm interpretation">{MODES.map(item => <button key={item.value} aria-pressed={mode === item.value} onClick={() => setMode(item.value)} disabled={busy || source === 'simulation' || source === 'replay'}>{item.label}</button>)}</div></div>
       {practice.canSelectInput && <div className="microphone-control"><label className="small-label" htmlFor="microphone-input">MICROPHONE</label><select id="microphone-input" value={practice.deviceId} disabled={busy || running} onChange={event => practice.setDeviceId(event.target.value)}>
         <option value="">Browser default</option>
         {practice.inputDevices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}
         {practice.deviceId && !practice.inputDevices.some(device => device.deviceId === practice.deviceId) && <option value={practice.deviceId}>Selected microphone (unavailable)</option>}
       </select>{running && <span className="microphone-hint">Stop listening to change input</span>}</div>}
       <div className="capture-controls" role="group" aria-label="Microphone capture">
-        {running || busy ? <button className="primary-button stop-button" onClick={() => void practice.stop()}><Square size={15} fill="currentColor" />{busy ? 'Cancel microphone' : source === 'simulation' ? 'Stop simulation' : 'Stop listening'}</button>
+        {running || busy ? <button className="primary-button stop-button" onClick={() => void practice.stop()}><Square size={15} fill="currentColor" />{busy ? 'Cancel microphone' : source === 'simulation' ? 'Stop simulation' : source === 'replay' ? 'Pause playback' : 'Stop listening'}</button>
           : <button className="primary-button" onClick={() => void practice.listen()}><Mic size={18} />Enable microphone</button>}
         <button className="capture-auto" aria-label="Auto capture" aria-pressed={practice.captureMode === 'auto'}
           aria-describedby="capture-mode-note" disabled={busy || (running && practice.captureMode !== 'auto')}
@@ -107,6 +123,7 @@ export function PracticeScreen() {
       {source === 'microphone' && hasInputProcessing && <p className="capture-notice" role="status">This microphone reports sound processing still enabled. Try another input if drum attacks are being missed.</p>}
       <p className="pause-note">A full bar of silence to start fresh.<br />{(240 / bpm).toLocaleString(undefined, { maximumFractionDigits: 2 })} seconds at {bpm} BPM · 4/4</p>
       {source === 'microphone' && <p className="source-note"><span className="input-level" aria-hidden="true"><i style={{ transform: `scaleX(${Math.min(1, practice.level * 4)})` }} /></span>{practice.captureInfo?.source === 'native' ? 'Native microphone' : practice.captureInfo?.inputLabel || 'Browser microphone'} · live audio</p>}
+      {source === 'replay' && <p className="source-note">Recorded audio · microphone and Auto are off</p>}
       {source === 'simulation' && <p className="source-note demo-label">Generated hits · microphone is off</p>}
     </section>
     <footer className="app-footer"><span>Listen to your own time.</span>{!running && <button onClick={() => void practice.simulate()} disabled={busy}>Try a simulation <span aria-hidden="true">↗</span></button>}</footer>
