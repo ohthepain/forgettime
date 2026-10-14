@@ -61,11 +61,28 @@ public class AndroidCaptureRunner {
                 line.append("{\"time\":").append(point.time).append(",\"duration\":").append(point.duration)
                     .append(",\"min\":").append(point.min).append(",\"max\":").append(point.max).append('}');
             }
-            System.out.println(line.append("]}"));
+            line.append("],\"analysis\":{\"implementation\":\"forgettime-java-onset\",\"version\":\"1\"},\"diagnostics\":").append(json(batch.diagnostics.toMap())).append("}");
+            System.out.println(line);
             cursor += count;
             stream.acknowledge(cursor);
         }
     }
+    private static String json(Object value) {
+        if (value == null) return "null";
+        if (value instanceof String) return "\"" + ((String) value).replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+        if (value instanceof java.util.Map<?, ?>) {
+            var fields = new java.util.ArrayList<String>();
+            for (var entry : ((java.util.Map<?, ?>) value).entrySet()) fields.add(json(entry.getKey()) + ":" + json(entry.getValue()));
+            return "{" + String.join(",", fields) + "}";
+        }
+        if (value instanceof java.util.List<?>) {
+            var fields = new java.util.ArrayList<String>();
+            for (var element : (java.util.List<?>) value) fields.add(json(element));
+            return "[" + String.join(",", fields) + "]";
+        }
+        return value.toString();
+    }
+
     private static void require(boolean value, String message) {
         if (!value) throw new AssertionError(message);
     }
