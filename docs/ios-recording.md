@@ -1,6 +1,6 @@
 # iOS recorded-take capture
 
-The iOS `AVAudioEngine` tap now supplies actual source PCM to the same single-take, Auto and bar-review workflow as the browser. It does not use browser microphone capture. The first qualifying native attack fixes beat one; the original native onsets/results and fixed reference are retained alongside audio. Previous/next bar review uses this PCM and stops listening/disables Auto. Playback remains a separate feature.
+The iOS `AVAudioEngine` tap now supplies actual source PCM to the same single-take, Auto and bar-review workflow as the browser. It does not use browser microphone capture. The first qualifying native attack fixes beat one; the original native onsets/results and fixed reference are retained alongside audio. Previous/next bar review uses this PCM and stops listening/disables Auto. Updated builds also support [native bar replay and detector diagnostics](ios-replay.md).
 
 ## Sample and storage contract
 

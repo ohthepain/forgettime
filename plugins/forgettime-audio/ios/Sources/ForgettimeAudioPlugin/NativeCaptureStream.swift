@@ -10,6 +10,7 @@ final class NativeCaptureStream {
         let level: Double
         let onsets: [DrumOnsetDetector.Onset]
         let waveform: [WaveformEnvelopeCapture.Point]
+        let diagnostics: [String: Any]
     }
     let sessionId: String
     let sampleRate: Double
@@ -21,12 +22,14 @@ final class NativeCaptureStream {
     private var acknowledgedFrame: Int64 = 0
     private var sentEndFrame: Int64 = 0
 
-    init(sampleRate: Double, sessionId: String = UUID().uuidString) {
+    init(sampleRate: Double, sessionId: String = UUID().uuidString, settings: DetectorSettings = .defaults) {
         self.sampleRate = sampleRate
         self.sessionId = sessionId
-        detector = DrumOnsetDetector(sampleRate: sampleRate)
+        detector = DrumOnsetDetector(sampleRate: sampleRate, settings: settings)
         waveform = WaveformEnvelopeCapture(sampleRate: sampleRate)
     }
+
+    func configure(_ settings: DetectorSettings) { detector.configure(settings) }
 
     func acknowledge(sessionId: String, endFrame: Int64) {
         guard sessionId == self.sessionId else { return }
@@ -67,7 +70,7 @@ final class NativeCaptureStream {
             if let point = waveform.process(sample: sample, time: time) { points.append(point) }
         }
         return Packet(startFrame: start, samples: pcm, time: detector.processedThrough,
-                      level: min(1, sqrt(energy / Double(max(1, frameCount)))), onsets: onsets, waveform: points)
+                      level: min(1, sqrt(energy / Double(max(1, frameCount)))), onsets: onsets, waveform: points, diagnostics: detector.drainDiagnostics())
     }
 }
 
