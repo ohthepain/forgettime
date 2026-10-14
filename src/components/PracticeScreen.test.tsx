@@ -19,7 +19,7 @@ function practice(): ReturnType<typeof usePractice> {
     importState: null, importBusy: false, importError: null, importNotice: null, nativeImportPicker: false,
     beginImport: vi.fn(), cancelImport: vi.fn(), importFiles: vi.fn(), chooseImportFiles: vi.fn(), useImportAudioOnly: vi.fn(), confirmImport: vi.fn(),
     savedBars: [], savedBarsSupported: true, libraryBusy: false, libraryError: null, libraryNotice: null,
-    saveSelectedBar: vi.fn(), openSavedBar: vi.fn(), exportSavedFile: vi.fn(), openRecordedMaterial: vi.fn(),
+    exportSavedPair: vi.fn(), pairedExportSupported: false, saveSelectedBar: vi.fn(), openSavedBar: vi.fn(), exportSavedFile: vi.fn(), openRecordedMaterial: vi.fn(),
     detectorSettings: { ...DEFAULT_DETECTOR_SETTINGS }, configureDetector: vi.fn(), resetDetector: vi.fn(), detectorSettingsSupported: true, liveDiagnostics: { candidates: [], dropped: 0, supported: false },
     playBar: vi.fn(), restartReplay: vi.fn(), replayState: null,
     recordedTake: null, reviewBar: null, reviewBarIndex: 0, reviewBarCount: 0, recordingNotice: null,

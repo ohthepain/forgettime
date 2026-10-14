@@ -30,6 +30,23 @@ import org.json.JSONObject;
     @Permission(alias = "microphone", strings = { Manifest.permission.RECORD_AUDIO })
 })
 public class ForgettimeAudioPlugin extends Plugin {
+    private NativeFiles files;
+    private synchronized NativeFiles files() throws java.io.IOException { if (files == null) files = new NativeFiles(this); return files; }
+    private void fileOperation(String method, PluginCall call) { try { files().execute(method, call); } catch (java.io.IOException error) { call.reject(error.getMessage(), error); } }
+    @com.getcapacitor.annotation.ActivityCallback
+    private void audioFilesPicked(PluginCall call, androidx.activity.result.ActivityResult result) { try { files().picked(call, result); } catch (java.io.IOException error) { if (call != null) call.reject(error.getMessage(), error); } }
+    @PluginMethod public void listSavedBars(PluginCall call) { fileOperation("listSavedBars", call); }
+    @PluginMethod public void beginBarSave(PluginCall call) { fileOperation("beginBarSave", call); }
+    @PluginMethod public void appendFileChunk(PluginCall call) { fileOperation("appendFileChunk", call); }
+    @PluginMethod public void commitBarSave(PluginCall call) { fileOperation("commitBarSave", call); }
+    @PluginMethod public void abortFileTransfer(PluginCall call) { fileOperation("abortFileTransfer", call); }
+    @PluginMethod public void readSavedBar(PluginCall call) { fileOperation("readSavedBar", call); }
+    @PluginMethod public void pickAudioFiles(PluginCall call) { fileOperation("pickAudioFiles", call); }
+    @PluginMethod public void readFileChunk(PluginCall call) { fileOperation("readFileChunk", call); }
+    @PluginMethod public void releaseFiles(PluginCall call) { fileOperation("releaseFiles", call); }
+    @PluginMethod public void beginAudioDecode(PluginCall call) { fileOperation("beginAudioDecode", call); }
+    @PluginMethod public void finishAudioDecode(PluginCall call) { fileOperation("finishAudioDecode", call); }
+    @PluginMethod public void exportSavedBar(PluginCall call) { fileOperation("exportSavedBar", call); }
     private volatile Session session;
     private PluginCall pendingStart;
     private ReplayOutput replay;
@@ -367,7 +384,7 @@ public class ForgettimeAudioPlugin extends Plugin {
         if (session != null) stopCapture("background");
     }
     @Override protected void handleOnStop() { foreground = false; stopReplaySession("Playback stopped while the app was backgrounded.", "stopped"); stopCapture("background"); }
-    @Override protected void handleOnDestroy() { foreground = false; stopReplaySession("Playback session destroyed.", "stopped"); stopCapture("destroyed"); }
+    @Override protected void handleOnDestroy() { if (files != null) files.close(); foreground = false; stopReplaySession("Playback session destroyed.", "stopped"); stopCapture("destroyed"); }
 
     private static class Session {
         final AudioRecord record;

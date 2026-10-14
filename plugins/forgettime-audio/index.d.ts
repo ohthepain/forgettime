@@ -37,7 +37,23 @@ export interface NativeAudioFrame {
   pcm?: { startFrame: number; samples: number[] };
 }
 export interface NativeMetronomePlan { origin: number; bpm: number; fromBeat: number; untilTime: number }
-export interface ForgettimeAudioPlugin {
+export interface NativeSavedBarSummary { id: string; name: string; createdAt: number; bpm: number; complete: boolean; bytes: number }
+export interface NativeFileHandle { handle: string; size: number }
+export interface NativeFilePlugin {
+  listSavedBars(): Promise<{ bars: NativeSavedBarSummary[] }>;
+  beginBarSave(options: { summary: NativeSavedBarSummary; wavBytes: number; sidecarBytes: number }): Promise<{ transferId: string }>;
+  appendFileChunk(options: { transferId: string; part: 'wav' | 'sidecar' | 'audio'; offset: number; data: string }): Promise<void>;
+  commitBarSave(options: { transferId: string }): Promise<void>;
+  abortFileTransfer(options: { transferId: string }): Promise<void>;
+  readSavedBar(options: { id: string }): Promise<{ summary: NativeSavedBarSummary; wav: NativeFileHandle; sidecar: NativeFileHandle }>;
+  pickAudioFiles(): Promise<{ files: (NativeFileHandle & { name: string })[] }>;
+  readFileChunk(options: { handle: string; offset: number; length: number }): Promise<{ data: string }>;
+  releaseFiles(options: { handles: string[] }): Promise<void>;
+  beginAudioDecode(options: { name: string; byteLength: number }): Promise<{ transferId: string }>;
+  finishAudioDecode(options: { transferId: string }): Promise<NativeFileHandle & { frames: number; sampleRate: number; channels: number }>;
+  exportSavedBar(options: { id: string }): Promise<{ status: 'presented' | 'cancelled' }>;
+}
+export interface ForgettimeAudioPlugin extends NativeFilePlugin {
   start(options?: { detectorSettings?: NativeDetectorSettings }): Promise<{ sessionId?: string; sampleRate: number; timestampQuality: 'hardware' | 'sample-clock'; diagnosticsSupported?: boolean; analysis?: { implementation: string; version: string } }>;
   setDetectorSettings(options: { sessionId: string; detectorSettings: NativeDetectorSettings }): Promise<void>;
   startReplay(options: { sessionId: string; sampleRate: number; samples: number[]; detectorSettings: NativeDetectorSettings }): Promise<{ sessionId: string; sampleRate: number; frameCount: number; diagnosticsSupported: boolean }>;
