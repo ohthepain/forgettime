@@ -234,3 +234,12 @@ it('restarts a selected replay with real detector settings while preserving its 
   advance(2.8)
   expect(result.current.replayState!.onsets).toEqual(defaultOnsets)
 })
+it('keeps the beat in 1–4 when imported musical beat one starts a fraction after sample zero', async () => {
+  const hook = renderHook(() => usePractice(120, 'straight', 50, { enabled: false, mode: 'always', thresholdMs: 100 }))
+  await act(() => hook.result.current.openRecordedMaterial({ source: 'imported', barCount: 1, continuity: 0, origin: .000005, audio: { startFrame: 0, sampleRate: 48000, samples: new Float32Array(96000) }, settings: { bpm: 120, mode: 'straight', startSensitivity: 50 }, onsets: [], results: [], endReason: 'stopped' }))
+  await act(() => hook.result.current.playBar())
+  expect(hook.result.current.snapshot.beat).toBe(4)
+  advance(.06)
+  expect(hook.result.current.snapshot.beat).toBe(1)
+  expect(hook.result.current.recordedTake!.origin).toBe(.000005)
+})

@@ -16,6 +16,8 @@ afterEach(() => cleanup())
 
 function practice(): ReturnType<typeof usePractice> {
   return {
+    importState: null, importBusy: false, importError: null, importNotice: null, nativeImportPicker: false,
+    beginImport: vi.fn(), cancelImport: vi.fn(), importFiles: vi.fn(), chooseImportFiles: vi.fn(), useImportAudioOnly: vi.fn(), confirmImport: vi.fn(),
     savedBars: [], savedBarsSupported: true, libraryBusy: false, libraryError: null, libraryNotice: null,
     saveSelectedBar: vi.fn(), openSavedBar: vi.fn(), exportSavedFile: vi.fn(), openRecordedMaterial: vi.fn(),
     detectorSettings: { ...DEFAULT_DETECTOR_SETTINGS }, configureDetector: vi.fn(), resetDetector: vi.fn(), detectorSettingsSupported: true, liveDiagnostics: { candidates: [], dropped: 0, supported: false },
@@ -39,6 +41,24 @@ describe('practice screen integration', () => {
     vi.mocked(usePractice).mockImplementation(() => state)
   })
   afterEach(() => cleanup())
+
+  it('routes picker and drop to the same import action and makes beat one keyboard accessible', () => {
+    const { rerender } = render(<PracticeScreen />)
+    const file = new File(['audio'], 'drums.wav', { type: 'audio/wav' })
+    fireEvent.click(screen.getByRole('button', { name: 'Import audio' }))
+    expect(state.beginImport).toHaveBeenCalledOnce()
+    fireEvent.change(screen.getByLabelText('Choose audio and optional .forget files'), { target: { files: [file] } })
+    expect(state.importFiles).toHaveBeenCalledWith([expect.objectContaining({ name: 'drums.wav', size: 5 })])
+    fireEvent.drop(screen.getByRole('region', { name: 'Import audio files' }), { dataTransfer: { files: [file] } })
+    expect(state.importFiles).toHaveBeenCalledTimes(2)
+    state = { ...state, importState: { kind: 'setup', file: { name: 'drums.wav', size: 5, read: async () => new ArrayBuffer(5) }, bpm: 110, explanation: 'Confirm reference', audio: { samples: new Float32Array(48000), sampleRate: 48000, channels: 1 } } }
+    rerender(<PracticeScreen />)
+    fireEvent.change(screen.getByLabelText('Beat one (seconds)'), { target: { value: '0.3' } })
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Beat one position' }), { key: 'ArrowRight' })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm tempo and beat one' }))
+    expect(state.confirmImport).toHaveBeenCalledWith(110, .3 + 1 / 48000)
+    expect((screen.getByRole('button', { name: 'Enable microphone' }) as HTMLButtonElement).disabled).toBe(true)
+  })
 
   it('offers durable local save and separate WAV and metadata downloads', () => {
     const take: RecordedTake = { source: 'saved', continuity: 0, origin: 0, settings: { bpm: 100, mode: 'auto', startSensitivity: 50 }, audio: { startFrame: 0, sampleRate: 8000, samples: new Float32Array(19200) }, onsets: [], results: [], endReason: 'stopped', barCount: 1 }

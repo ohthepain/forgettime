@@ -2,7 +2,7 @@
 
 Browser Save bar on device commits only the selected bar. Audio and metadata live in the `bars` IndexedDB store; the saved-bars list lives in `index`. One readwrite transaction covers both stores. Success is reported only by transaction completion, never an individual write request. Duplicate IDs, quota failure and abort leave existing records intact. Saved bars survive replacement of the unsaved take and page restart. Browser storage can still be cleared or evicted by the browser; this is not a backup service.
 
-Each saved entry offers separate, explicit WAV and `.forget` downloads. Both use the same UUID filename stem. A download request cannot prove that the browser wrote the file: the UI says “download requested” and retains the local pair on cancellation/failure. Audio remains on-device unless the user explicitly downloads it. Native file adapters and ordinary-audio selection are separate follow-up features; no microphone is started by reopening a bar.
+Each saved entry offers separate, explicit WAV and `.forget` downloads. Both use the same UUID filename stem. A download request cannot prove that the browser wrote the file: the UI says “download requested” and retains the local pair on cancellation/failure. Audio remains on-device unless the user explicitly downloads it. Native file adapters are a separate follow-up feature; browser ordinary-audio selection is described in [browser import](browser-import.md); no microphone is started by reopening a bar.
 
 ## Interchange contract
 
@@ -22,7 +22,7 @@ SHA-256 identifies the final encoded WAV bytes, not decoded samples or the filen
 
 For a musical interval `[S,E)` and copied source frames `[A,B)` at sample rate `R`, clip zero is `A/R`. Preserve `origin = S - A/R` even if slightly negative. Rebase onset/candidate `time`, result `time`, `displayedAt`, and guidance `intendedTime` by subtracting `A/R`. Keep error values and durations unchanged. A result's historical `displayedAt` may legitimately occur after the clip. Explicit one-bar extent prevents fractional frame rounding from generating a phantom second bar on repeated export.
 
-`src/audio/wav.ts` uses DataView and no Node Buffer API. Export is deterministic mono IEEE Float32 little endian; finite samples outside [-1,1], and signed zero, are preserved exactly. Shared decode supports PCM16/Float32, including validated extensible GUIDs, 1–8 channels with arithmetic averaging, and 8–192 kHz. Invalid RIFF/chunk lengths, padding, byte rate, block alignment, partial frames and nonfinite samples fail. PCM24/PCM32 and compressed ordinary audio are not supported by this initial codec.
+`src/audio/wav.ts` uses DataView and no Node Buffer API. Export is deterministic mono IEEE Float32 little endian; finite samples outside [-1,1], and signed zero, are preserved exactly. Shared decode supports PCM16/24/32 and Float32, including validated extensible GUIDs, 1–8 channels with arithmetic averaging, and 8–192 kHz. Invalid RIFF/chunk lengths, padding, byte rate, block alignment, partial frames and nonfinite samples fail. Compressed ordinary audio uses the platform decoder described in [browser import](browser-import.md).
 
 ## Limits and adapter seams
 

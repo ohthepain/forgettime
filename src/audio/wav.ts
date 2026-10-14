@@ -31,7 +31,7 @@ export function decodeWav(bytes: ArrayBuffer) {
         const tail = [...new Uint8Array(bytes, start + 28, 12)].join(',')
         if (tail !== '0,0,16,0,128,0,0,170,0,56,155,113') throw new Error('Unsupported WAV subtype.')
       }
-      if (!((format === 1 && bits === 16) || (format === 3 && bits === 32)) || channels < 1 || channels > 8 || sampleRate < 8000 || sampleRate > 192000 || align !== channels * bits / 8 || view.getUint32(start + 8, true) !== sampleRate * align) throw new Error('Unsupported WAV format.')
+      if (!((format === 1 && [16, 24, 32].includes(bits)) || (format === 3 && bits === 32)) || channels < 1 || channels > 8 || sampleRate < 8000 || sampleRate > 192000 || align !== channels * bits / 8 || view.getUint32(start + 8, true) !== sampleRate * align) throw new Error('Unsupported WAV format.')
     } else if (name === 'data') {
       if (data !== -1) throw new Error('Multiple WAV data chunks are unsupported.')
       data = start; length = size
@@ -46,12 +46,12 @@ export function decodeWav(bytes: ArrayBuffer) {
     let sum = 0
     for (let channel = 0; channel < channels; channel++) {
       const at = data + frame * align + channel * bits / 8
-      const sample = format === 3 ? view.getFloat32(at, true) : view.getInt16(at, true) / 32768
+      const sample = format === 3 ? view.getFloat32(at, true) : bits === 16 ? view.getInt16(at, true) / 32768 : bits === 32 ? view.getInt32(at, true) / 2147483648 : ((view.getUint16(at, true) | (view.getInt8(at + 2) << 16)) / 8388608)
       if (!Number.isFinite(sample)) throw new Error('Audio contains nonfinite samples.')
       sum = channel === 0 ? sample / channels : sum + sample / channels
     }
     samples[frame] = sum
     if (!Number.isFinite(samples[frame])) throw new Error('Audio contains nonfinite samples.')
   }
-  return { samples, sampleRate, channels, encoding: format === 3 ? 'float32' as const : 'pcm16' as const }
+  return { samples, sampleRate, channels, encoding: format === 3 ? 'float32' as const : bits === 16 ? 'pcm16' as const : bits === 24 ? 'pcm24' as const : 'pcm32' as const }
 }

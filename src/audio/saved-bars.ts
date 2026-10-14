@@ -1,3 +1,4 @@
+import type { AudioImportAdapter } from './audio-import'
 import { z } from 'zod'
 import { MAX_SIDECAR_BYTES, type BarFiles } from './bar-files'
 import { MAX_AUDIO_FILE_BYTES } from './wav'
@@ -7,7 +8,7 @@ export interface SavedBarSummary { id: string; name: string; createdAt: number; 
 export interface SavedBarRecord extends SavedBarSummary, BarFiles {}
 /** save resolves only after the complete pair and its list entry are durably committed. */
 export interface SavedBarRepository { list(): Promise<SavedBarSummary[]>; read(id: string): Promise<SavedBarRecord>; save(record: SavedBarRecord): Promise<void> }
-export interface BarFileOptions { savedBars?: SavedBarRepository; exportFile?: (name: string, bytes: ArrayBuffer | string, mime: string) => Promise<void> }
+export interface BarFileOptions { importer?: AudioImportAdapter; savedBars?: SavedBarRepository; exportFile?: (name: string, bytes: ArrayBuffer | string, mime: string) => Promise<void> }
 const summarySchema = z.strictObject({ id: z.string().min(1).max(128), name: z.string().min(1).max(255), createdAt: z.number().finite().nonnegative(), bpm: z.number().min(30).max(300), complete: z.boolean(), bytes: z.number().int().positive().max(MAX_AUDIO_FILE_BYTES + MAX_SIDECAR_BYTES) })
 export function createBrowserSavedBars(factory: IDBFactory = indexedDB): SavedBarRepository {
   const connect = () => new Promise<IDBDatabase>((resolve, reject) => {
