@@ -133,7 +133,7 @@ export class BrowserBarReplay {
     const { iteration, position } = this.position(time)
     // The analyzed watermark may trail output by a partial detector window.
     const snapshot = this.engine.snapshot(this.detector.processedThrough ?? 0)
-    snapshot.beat = (Math.floor((time - this.origin + 1e-8) / (60 / snapshot.bpm)) % 4 + 1) as 1 | 2 | 3 | 4
+    snapshot.beat = (((Math.floor((time - this.origin + 1e-8) / (60 / snapshot.bpm)) % 4) + 4) % 4 + 1) as 1 | 2 | 3 | 4
     // Scores keep their sample timestamps, but each newly delivered line gets its
     // own full presentation animation even when the UI callback arrived late.
     const delivered = new Map([...this.pendingPresentation, ...snapshot.hits].map(hit => [hit.id, hit]))
