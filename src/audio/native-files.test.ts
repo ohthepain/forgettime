@@ -52,3 +52,7 @@ it('decodes native compressed bytes without changing their sample rate or channe
   expect(audio).toEqual({ samples: new Float32Array([-0.25, 0, 0.75]), sampleRate: 44100, channels: 2 })
   expect(edge.releaseFiles).toHaveBeenCalledWith({ handles: ['pcm'] }); expect(edge.abortFileTransfer).toHaveBeenCalledWith({ transferId: 'decode' })
 })
+it('rejects malformed native picker metadata without masking the actionable error', async () => {
+  edge.pickAudioFiles.mockResolvedValue({ files: null })
+  await expect(createNativeBarFiles().importer!.pick!()).rejects.toThrow('Choose one WAV')
+})

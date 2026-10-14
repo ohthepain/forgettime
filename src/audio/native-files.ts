@@ -40,7 +40,7 @@ export function createNativeBarFiles(): BarFileOptions {
             selected.push({ name: file.name, size: bytes.byteLength, read: async () => bytes })
           }
           return selected
-        } finally { await native.releaseFiles({ handles: files.map(file => file.handle) }) }
+        } finally { if (Array.isArray(files)) await native.releaseFiles({ handles: files.flatMap(file => file && typeof file.handle === 'string' ? [file.handle] : []) }) }
       },
       async decode(file, bytes) {
         size(bytes.byteLength, MAX_AUDIO_FILE_BYTES)
