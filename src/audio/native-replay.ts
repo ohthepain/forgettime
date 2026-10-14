@@ -1,4 +1,4 @@
-import { ForgettimeAudio, type NativeReplayFrame } from 'forgettime-audio'
+import { ForgettimeAudio, type NativeReplayFrame, type NativeOnset, type NativeMetronomePlan } from 'forgettime-audio'
 import { DEFAULT_DETECTOR_SETTINGS, MAX_DIAGNOSTIC_CANDIDATES, normalizeDetectorSettings, type DetectorSettings } from './detector-contract'
 import { TimingEngine, type ResolvedHit } from './engine'
 import { DEFAULT_METRONOME, MetronomeCoach, type MetronomeOptions } from './metronome'
@@ -20,6 +20,11 @@ export class NativeBarReplay implements BarReplay {
   private stopping: Promise<void> | undefined
   private audible = 0
   private analyzed = 0
+  private presentationFrame = 0
+  private presentedThrough = 0
+  private queuedOnsets: NativeOnset[] = []
+  private planPending = false
+  private latestPlan: NativeMetronomePlan | null = null
   private lastOnset = -Infinity
   private lastCandidate = 0
   private onsets: ReplayOnset[] = []
@@ -83,8 +88,7 @@ export class NativeBarReplay implements BarReplay {
       if (!Number.isFinite(onset.time) || onset.time < 0 || onset.time <= this.lastOnset || onset.time * frame.sampleRate > frame.analyzedThroughFrame + 1e-6
         || !Number.isFinite(onset.strength) || !Number.isFinite(onset.confidence)) throw new Error('Native replay returned invalid attack measurements.')
       this.lastOnset = onset.time
-      this.engine.addOnset(onset)
-      this.onsets.push({ ...onset, ...this.position(onset.time) })
+      this.queuedOnsets.push(onset)
     }
     for (const candidate of frame.diagnostics.candidates) {
       if (candidate.version !== 1 || !Number.isSafeInteger(candidate.id) || candidate.id <= this.lastCandidate || !Number.isFinite(candidate.time)
@@ -95,12 +99,27 @@ export class NativeBarReplay implements BarReplay {
     this.dropped += frame.diagnostics.dropped
     this.audible = frame.audibleFrame
     this.analyzed = frame.analyzedThroughFrame
+    // Match browser replay's fixed 128-source-frame interpretation cadence.
+    // A delayed bridge read must not let a later attack change an earlier score.
+    const windowFrames = Math.max(32, Math.round(frame.sampleRate * 0.002667))
+    while (this.presentationFrame + 128 <= this.audible) {
+      this.presentationFrame += 128
+      const through = Math.floor(this.presentationFrame / windowFrames) * windowFrames
+      if (through > this.analyzed) throw new Error('Native replay analysis watermark is incomplete.')
+      while (this.queuedOnsets.length && Math.round(this.queuedOnsets[0].time * frame.sampleRate) < through) {
+        const onset = this.queuedOnsets.shift()!
+        this.engine.addOnset(onset)
+        this.onsets.push({ ...onset, ...this.position(onset.time) })
+      }
+      this.presentedThrough = through
+      this.engine.snapshot(through / frame.sampleRate)
+    }
     this.publish()
   }
   private publish() {
     const time = this.audible / this.bar.audio.sampleRate
     const { iteration, position } = this.position(time)
-    const snapshot = this.engine.snapshot(this.analyzed / this.bar.audio.sampleRate)
+    const snapshot = this.engine.snapshot(this.presentedThrough / this.bar.audio.sampleRate)
     snapshot.beat = (((Math.floor((time - this.origin + 1e-8) / (60 / snapshot.bpm)) % 4) + 4) % 4 + 1) as 1 | 2 | 3 | 4
     snapshot.hits = [...new Map([...this.pending, ...snapshot.hits].map(hit => [hit.id, hit])).values()].map(hit => ({ ...hit, id: this.run * 1_000_000 + hit.id }))
     this.pending = []
@@ -113,11 +132,23 @@ export class NativeBarReplay implements BarReplay {
     }
     // Replay silence never shuts off its established coaching/reference clock.
     const plan = this.coach.update({ ...snapshot, lastHitTime: time }, time, this.metronome).plan
-    void ForgettimeAudio.setReplayMetronome({ sessionId: this.sessionId, plan }).catch(() => {
-      if (!this.stopped) { void this.stop(); this.onError('Native replay metronome output failed.') }
-    })
+    this.latestPlan = plan
+    void this.sendPlan()
     this.onState({ settings: this.settings, run: this.run, time, iteration, progress: position, snapshot,
       onsets: this.onsets.slice(), results: this.results.slice(), candidates: this.candidates.slice(), diagnosticsDropped: this.dropped, metronomeActive: Boolean(plan) })
+  }
+  private async sendPlan() {
+    if (this.planPending || this.stopped) return
+    this.planPending = true
+    try {
+      let sent: NativeMetronomePlan | null
+      do {
+        sent = this.latestPlan
+        await ForgettimeAudio.setReplayMetronome({ sessionId: this.sessionId, plan: sent })
+      } while (!this.stopped && sent !== this.latestPlan)
+    } catch {
+      if (!this.stopped) { await this.stop(); this.onError('Native replay metronome output failed.') }
+    } finally { this.planPending = false }
   }
   setMetronome(options: MetronomeOptions) { this.metronome = options }
   stop(): Promise<void> {
