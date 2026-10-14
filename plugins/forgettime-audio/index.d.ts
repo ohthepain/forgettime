@@ -13,11 +13,16 @@ export interface NativeAudioFrame {
   /** 2 ms min/max windows from the captured PCM, on the same sample clock. */
   waveform?: NativeWaveformEnvelope[];
   metronomeAvailable?: boolean;
+  /** Capture generation; acknowledgements from older sessions are ignored. */
+  sessionId?: string;
+  /** Mono source PCM, sharing sampleRate and onset clock. At most 16384 samples. */
+  pcm?: { startFrame: number; samples: number[] };
 }
 export interface NativeMetronomePlan { origin: number; bpm: number; fromBeat: number; untilTime: number }
 export interface ForgettimeAudioPlugin {
-  start(): Promise<{ sampleRate: number; timestampQuality: 'hardware' | 'sample-clock' }>;
+  start(): Promise<{ sessionId?: string; sampleRate: number; timestampQuality: 'hardware' | 'sample-clock' }>;
   stop(): Promise<void>;
+  acknowledgeFrame(options: { sessionId: string; endFrame: number }): Promise<void>;
   setMetronome(options: { plan: NativeMetronomePlan | null }): Promise<void>;
   addListener(name: 'audioFrame', callback: (event: NativeAudioFrame) => void): Promise<PluginListenerHandle>;
   addListener(name: 'captureStopped', callback: (event: { reason: string }) => void): Promise<PluginListenerHandle>;
