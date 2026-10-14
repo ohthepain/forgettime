@@ -16,6 +16,8 @@ afterEach(() => cleanup())
 
 function practice(): ReturnType<typeof usePractice> {
   return {
+    savedBars: [], savedBarsSupported: true, libraryBusy: false, libraryError: null, libraryNotice: null,
+    saveSelectedBar: vi.fn(), openSavedBar: vi.fn(), exportSavedFile: vi.fn(), openRecordedMaterial: vi.fn(),
     detectorSettings: { ...DEFAULT_DETECTOR_SETTINGS }, configureDetector: vi.fn(), resetDetector: vi.fn(), detectorSettingsSupported: true, liveDiagnostics: { candidates: [], dropped: 0, supported: false },
     playBar: vi.fn(), restartReplay: vi.fn(), replayState: null,
     recordedTake: null, reviewBar: null, reviewBarIndex: 0, reviewBarCount: 0, recordingNotice: null,
@@ -37,6 +39,32 @@ describe('practice screen integration', () => {
     vi.mocked(usePractice).mockImplementation(() => state)
   })
   afterEach(() => cleanup())
+
+  it('offers durable local save and separate WAV and metadata downloads', () => {
+    const take: RecordedTake = { source: 'saved', continuity: 0, origin: 0, settings: { bpm: 100, mode: 'auto', startSensitivity: 50 }, audio: { startFrame: 0, sampleRate: 8000, samples: new Float32Array(19200) }, onsets: [], results: [], endReason: 'stopped', barCount: 1 }
+    state = { ...state, recordedTake: take, reviewBar: recordedBar(take, 0), reviewBarCount: 1, savedBars: [{ id: 'saved-id', name: 'Bar 1', createdAt: 0, bpm: 100, complete: true, bytes: 100 }] }
+    render(<PracticeScreen />)
+    fireEvent.click(screen.getByRole('button', { name: 'Save bar on device' }))
+    expect(state.saveSelectedBar).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: 'Open Bar 1' }))
+    expect(state.openSavedBar).toHaveBeenCalledWith('saved-id')
+    fireEvent.click(screen.getByRole('button', { name: 'Download WAV for Bar 1' }))
+    expect(state.exportSavedFile).toHaveBeenCalledWith('saved-id', 'wav')
+    fireEvent.click(screen.getByRole('button', { name: 'Download .forget for Bar 1' }))
+    expect(state.exportSavedFile).toHaveBeenCalledWith('saved-id', 'forget')
+    expect(screen.getByText('Saved bar · 100 BPM · microphone is off')).toBeDefined()
+  })
+
+  it('restores visible tempo and interpretation for a reopened bar before replay starts', () => {
+    const take: RecordedTake = { source: 'saved', continuity: 0, origin: -.000003, settings: { bpm: 110, mode: 'swing', startSensitivity: 70 }, audio: { startFrame: 0, sampleRate: 8000, samples: new Float32Array(17455) }, onsets: [], results: [], endReason: 'stopped', barCount: 1 }
+    state = { ...state, recordedTake: take, reviewBar: recordedBar(take, 0), reviewBarCount: 1 }
+    render(<PracticeScreen />)
+    expect((screen.getByRole('spinbutton') as HTMLInputElement).value).toBe('110')
+    expect(screen.getByRole('button', { name: 'Swing / triplet' }).getAttribute('aria-pressed')).toBe('true')
+    expect(usePreferences.getState().startSensitivity).toBe(70)
+    expect(state.listen).not.toHaveBeenCalled()
+    expect(take.origin).toBe(-.000003)
+  })
 
   it('preserves the counter element and hides it before lock and after pause', () => {
     const { container, rerender } = render(<PracticeScreen />)

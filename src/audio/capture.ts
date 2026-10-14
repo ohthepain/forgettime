@@ -8,6 +8,8 @@ import type { MetronomePlan } from './metronome'
 import { BrowserOutputAlignment, browserLatencyEstimate, type BrowserLatencyEstimate } from './output-alignment'
 
 export interface CaptureInfo {
+  /** Actual detector implementation, absent for older unknown native versions. */
+  analysis?: { implementation: string; version: string }
   source: 'native' | 'web'
   sampleRate: number
   timestampQuality: 'hardware' | 'sample-clock'

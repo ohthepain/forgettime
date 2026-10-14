@@ -1,0 +1,57 @@
+{
+  "format": "forgettime-bar",
+  "schemaVersion": 1,
+  "audio": {
+    "encoding": "float32",
+    "byteLength": 60,
+    "sha256": "adde511bb83a04ffaab7d3559acff360e8efa3336addf5a311bcf7bf05781838",
+    "sampleRate": 8000,
+    "channels": 1,
+    "frames": 4
+  },
+  "musical": {
+    "origin": 0,
+    "duration": 2,
+    "bars": 1,
+    "complete": false
+  },
+  "settings": {
+    "bpm": 120,
+    "mode": "straight",
+    "startSensitivity": 50
+  },
+  "meter": [
+    4,
+    4
+  ],
+  "provenance": {
+    "kind": "unknown"
+  },
+  "analysis": null,
+  "original": {
+    "onsets": [
+      {
+        "time": 0,
+        "strength": 0.8,
+        "confidence": 0.9
+      }
+    ],
+    "results": [
+      {
+        "id": 4,
+        "time": 0,
+        "displayedAt": 3,
+        "errorMs": 4,
+        "confidence": 0.9,
+        "subdivision": "quarter",
+        "uncertain": false,
+        "guidance": {
+          "intendedTime": -0.004,
+          "errorMs": 4
+        }
+      }
+    ],
+    "diagnostics": null
+  },
+  "endReason": "interrupted"
+}

@@ -10,7 +10,11 @@ export interface TakeSettings { bpm: number; mode: InterpretationMode; startSens
 export type TakeEndReason = 'silence' | 'stopped' | 'interrupted' | 'limit'
 export interface RecordedTake {
   audio: RecordedAudio
-  source: 'web' | 'native'
+  source: 'web' | 'native' | 'saved' | 'imported'
+  /** Explicit musical extent for a selected saved/imported clip. */
+  barCount?: number
+  provenance?: { kind: 'capture' | 'import' | 'unknown'; platform?: 'web' | 'native'; name?: string }
+  analysis?: { implementation: string; version: string }
   /** Identity prevents sample positions being confused across clock resets. */
   continuity: number
   origin: number
@@ -81,11 +85,11 @@ export class TakeRecorder {
     for (const candidate of this.pendingDiagnostics) if (candidate.accepted && candidate.time === time) { candidate.acquisition = acquisition; candidate.acquisitionGate = acquisitionGate }
     for (const candidate of this.active?.diagnostics?.candidates ?? []) if (candidate.accepted && candidate.time === time) { candidate.acquisition = acquisition; candidate.acquisitionGate = acquisitionGate }
   }
-  begin(origin: number, settings: TakeSettings, source: RecordedTake['source']) {
+  begin(origin: number, settings: TakeSettings, source: 'web' | 'native', analysis?: RecordedTake['analysis']) {
     if (!this.chunks.length) return
     const desired = Math.floor((origin - 0.05) * this.rate)
     this.firstFrame = Math.max(this.chunks[0].startFrame, desired)
-    this.active = { origin, settings: { ...settings, detector: settings.detector ? { ...settings.detector } : undefined }, source, continuity: this.continuity, onsets: [], results: [],
+    this.active = { provenance: { kind: 'capture', platform: source === 'web' ? 'web' : 'native' }, analysis: analysis ?? (source === 'web' ? { implementation: 'forgettime-onset', version: '1' } : undefined), origin, settings: { ...settings, detector: settings.detector ? { ...settings.detector } : undefined }, source, continuity: this.continuity, onsets: [], results: [],
       diagnostics: this.diagnosticsSupported ? { candidates: this.pendingDiagnostics.filter(candidate => candidate.time >= this.firstFrame / this.rate), dropped: this.pendingDropped } : undefined }
     this.chunks = this.chunks.filter(chunk => chunk.startFrame + chunk.samples.length > this.firstFrame)
   }
@@ -120,6 +124,7 @@ export class TakeRecorder {
 }
 
 export function recordedBarCount(take: RecordedTake): number {
+  if (take.barCount !== undefined) return take.barCount
   const end = (take.audio.startFrame + take.audio.samples.length) / take.audio.sampleRate
   return Math.max(1, Math.ceil((end - take.origin - 1e-8) / (240 / take.settings.bpm)))
 }
