@@ -1,3 +1,4 @@
+import { DEFAULT_DETECTOR_SETTINGS, DETECTOR_VERSION, MAX_DIAGNOSTIC_CANDIDATES, normalizeDetectorSettings, type DetectorSettings, type DetectorCandidate, type DetectorRejectionReason, type DetectorDiagnostics } from './detector-contract'
 /** All times are seconds on the captured audio sample clock, never callback time. */
 export interface DetectedOnset {
   time: number;
@@ -17,6 +18,18 @@ export interface DetectedOnset {
  * first ~32 ms after activation/reset establish background energy without hits.
  */
 export class OnsetDetector {
+  private settings: DetectorSettings;
+  private diagnostics: DetectorCandidate[] = [];
+  private diagnosticsDropped = 0;
+  private nextCandidateId = 1;
+  constructor(settings: Partial<DetectorSettings> = DEFAULT_DETECTOR_SETTINGS) { this.settings = normalizeDetectorSettings(settings); }
+  /** Live edits preserve detector history; the practice reference is untouched. */
+  configure(settings: DetectorSettings) { this.settings = normalizeDetectorSettings(settings); }
+  drainDiagnostics(): DetectorDiagnostics {
+    const result = { candidates: this.diagnostics, dropped: this.diagnosticsDropped };
+    this.diagnostics = []; this.diagnosticsDropped = 0;
+    return result;
+  }
   private sampleRate = 0;
   private window = new Float32Array(128);
   private filled = 0;
@@ -42,6 +55,8 @@ export class OnsetDetector {
   get processedThrough(): number | null { return this.analyzedThrough; }
 
   reset(): void {
+    this.diagnostics = [];
+    this.diagnosticsDropped = 0;
     this.sampleRate = 0;
     this.filled = 0;
     this.expectedTime = null;
@@ -110,13 +125,13 @@ export class OnsetDetector {
     // the recent playing level for 1 s, then release with a 4 s time constant.
     // Derive decay from sample duration, never callback cadence.
     if (this.windowTime >= this.levelHoldUntil) {
-      this.levelReference *= Math.exp(-this.window.length / this.sampleRate / 4);
+      this.levelReference *= Math.exp(-this.window.length / this.sampleRate / this.settings.recoverySeconds);
     }
     if (rms >= this.levelReference * 0.7) {
       this.levelHoldUntil = this.windowTime + 1;
     }
     this.levelReference = Math.max(rms, this.levelReference);
-    const floor = 0.006;
+    const floor = this.settings.minimumRms;
     const minimumLevel = Math.max(floor, this.levelReference * 0.05);
     const rise = rms - previous;
     const ratio = rms / Math.max(previous, floor);
@@ -133,15 +148,35 @@ export class OnsetDetector {
     if (rms < this.recentPeak * 0.7) this.armed = true;
     this.previousRms = rms;
     this.recentPeak = Math.max(rms, this.recentPeak * 0.99);
-    if (!backgroundReady || elapsed < 0.018 || (!this.armed && ratio < 2.5) || rms < minimumLevel || rise < 0.002 || ratio < 1.55 || contrast < 1.8) return null;
-
-    // Back within this captured window to the attack, instead of stamping its end.
+    const reasons: DetectorRejectionReason[] = [];
+    if (!backgroundReady) reasons.push('warming-up');
+    if (elapsed < this.settings.minSeparationMs / 1000) reasons.push('separation');
+    if (!this.armed && ratio < 2.5) reasons.push('rearming');
+    if (rms < minimumLevel) reasons.push('level');
+    if (rise < 0.002 || ratio < 1.55) reasons.push('rise');
+    if (contrast < this.settings.contrastRatio) reasons.push('contrast');
+    // Timestamp both accepted and rejected attempts at their captured crossing.
     let offset = 0;
     const attackThreshold = Math.max(peak * 0.25, previous * 2);
     while (offset < this.window.length - 1 && Math.abs(this.window[offset]) < attackThreshold) offset += 1;
     const time = this.windowTime + offset / this.sampleRate;
+    const confidence = Math.min(0.98, Math.max(0.35, 0.45 + Math.log2(Math.max(ratio, 1e-12)) * 0.15 + Math.min(0.2, rise * 2)));
+    // An attempted attack is a distinct rising envelope, including soft attempts
+    // below the selected floor. Silence/steady/decaying windows are not candidates.
+    if (!reasons.length || (peak >= 0.001 && rise > 0.0001 && rms / Math.max(previous, 0.0001) >= 1.1)) {
+      const candidate: DetectorCandidate = { version: DETECTOR_VERSION, id: this.nextCandidateId++, time,
+        strength: Math.min(1, peak), confidence, accepted: !reasons.length, reasons, settings: { ...this.settings },
+        measurements: { rms, minimumLevel, levelReference: this.levelReference, rise, minimumRise: 0.002,
+          ratio, minimumRatio: 1.55, contrast, minimumContrast: this.settings.contrastRatio,
+          backgroundRms, baselineRms: baseline, armed: this.armed, rearmRatio: 2.5,
+          elapsedMs: Number.isFinite(elapsed) ? elapsed * 1000 : null, minimumSeparationMs: this.settings.minSeparationMs } };
+      if (this.diagnostics.length < MAX_DIAGNOSTIC_CANDIDATES) this.diagnostics.push(candidate);
+      else this.diagnosticsDropped++;
+    }
+    if (reasons.length) return null;
+
     this.lastOnsetTime = time;
-    if (fullContrast >= 1.8) {
+    if (fullContrast >= this.settings.contrastRatio) {
       this.lastClearAttackTime = time;
       this.preAttackBackground = backgroundRms;
     }
@@ -150,7 +185,7 @@ export class OnsetDetector {
     return {
       time,
       strength: Math.min(1, peak),
-      confidence: Math.min(0.98, Math.max(0.35, 0.45 + Math.log2(ratio) * 0.15 + Math.min(0.2, rise * 2))),
+      confidence,
     };
   }
 }

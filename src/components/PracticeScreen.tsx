@@ -5,6 +5,7 @@ import { usePractice } from '../audio/use-practice'
 import { usePresentedHits } from '../audio/use-presented-hits'
 import { AccountDialog } from './AccountDialog'
 import { SettingsDialog } from './SettingsDialog'
+import { DetectionDetails, type InspectableCandidate } from './DetectionDetails'
 import { BarWaveform } from './BarWaveform'
 import { BeatPendulum } from './BeatPendulum'
 import type { InterpretationMode } from '../audio/engine'
@@ -18,6 +19,9 @@ const METRONOME_MODES: { value: MetronomeMode; label: string }[] = [
 ]
 export function PracticeScreen() {
   const { bpm, mode, startSensitivity, setBpm, setMode, metronomeEnabled, metronomeMode, helpThresholdMs, setMetronomeEnabled, setMetronomeMode } = usePreferences()
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const [candidatePage, setCandidatePage] = useState(0)
+  const [inspectedCandidate, setInspectedCandidate] = useState<InspectableCandidate | null>(null)
   const [currentComparison, setCurrentComparison] = useState(true)
   const [tempoText, setTempoText] = useState(String(bpm))
   const [accountOpen, setAccountOpen] = useState(false)
@@ -34,6 +38,17 @@ export function PracticeScreen() {
   const currentResults = replay?.results.filter(hit => hit.iteration === replay.iteration) ?? []
   const originalResults = review ? practice.recordedTake?.results.filter(hit => hit.time >= review.start && hit.time < review.end) ?? [] : []
   const reviewWaveform = review ? { ...review.waveform, progress: source === 'replay' && replay ? replay.progress : review.waveform.progress, hits: currentComparison && replay ? currentHits : review.waveform.hits } : null
+  const diagnosticOrigin = review?.start ?? snapshot.phaseOrigin
+  const liveBarStart = diagnosticOrigin === null ? null : diagnosticOrigin + Math.floor((practice.captureTime - diagnosticOrigin) / (240 / snapshot.bpm)) * (240 / snapshot.bpm)
+  const candidates: InspectableCandidate[] = review
+    ? currentComparison && replay ? replay.candidates.filter(candidate => candidate.iteration === replay.iteration).map(candidate => ({ ...candidate, uncertain: replay.results.some(hit => hit.time === candidate.time && hit.uncertain) }))
+      : (practice.recordedTake?.diagnostics?.candidates ?? []).filter(candidate => candidate.time >= review.start && candidate.time < review.end).map(candidate => ({ ...candidate, position: (candidate.time - review.start) / (review.end - review.start), uncertain: originalResults.some(hit => hit.time === candidate.time && hit.uncertain) }))
+    : practice.liveDiagnostics.candidates.map(candidate => ({ ...candidate, position: liveBarStart === null ? undefined : (candidate.time - liveBarStart) / (240 / snapshot.bpm), uncertain: snapshot.hits.some(hit => hit.time === candidate.time && hit.uncertain) }))
+  const activeCandidatePage = Math.min(candidatePage, Math.max(0, Math.ceil(candidates.length / 20) - 1))
+  const visibleCandidates = candidates.slice(activeCandidatePage * 20, activeCandidatePage * 20 + 20)
+  const diagnosticsSupported = review ? currentComparison && replay ? true : Boolean(practice.recordedTake?.diagnostics) : practice.liveDiagnostics.supported
+  const diagnosticsDropped = review ? currentComparison && replay ? replay.diagnosticsDropped : practice.recordedTake?.diagnostics?.dropped ?? 0 : practice.liveDiagnostics.dropped
+  useEffect(() => { setInspectedCandidate(null); setCandidatePage(0) }, [replay?.run, practice.reviewBarIndex, currentComparison])
   const inputProcessing = practice.captureInfo?.processing
   const hasInputProcessing = inputProcessing?.autoGainControl === true
     || inputProcessing?.echoCancellation === true || inputProcessing?.noiseSuppression === true
@@ -80,6 +95,7 @@ export function PracticeScreen() {
       <div className="result-area"><p className={latest?.uncertain ? 'result uncertain' : 'result'}>{detail}</p><p className="result-note">{latest?.uncertain ? 'No timing score for this hit' : playing ? 'Reference stays fixed as you play' : 'Let your hands do the talking'}</p></div>
       <BarWaveform waveform={reviewWaveform ?? practice.waveform} source={source === 'replay' ? 'replay' : review ? 'microphone' : source === 'off' && practice.waveform.review ? practice.waveformSource : source}
         status={snapshot.status} startSensitivity={startSensitivity}
+        diagnostics={detailsOpen && source !== 'simulation' ? { candidates: visibleCandidates, selectedId: inspectedCandidate?.id, select: setInspectedCandidate } : undefined}
         review={review ? { index: practice.reviewBarIndex, count: practice.reviewBarCount, availableFraction: review.availableFraction, interrupted: review.endReason === 'interrupted', previous: () => void practice.previousBar(), next: () => void practice.nextBar(), select: () => void practice.reviewCurrentBar(), loop: () => void (source === 'replay' ? practice.stop() : practice.playBar()), canLoop: review.complete && !busy } : undefined}
         comparison={review && replay ? { current: currentComparison, select: setCurrentComparison } : undefined} />
       {review && replay && <div className="replay-results">
@@ -91,6 +107,10 @@ export function PracticeScreen() {
           <p>Current: {replay.results.map(hit => `Loop ${hit.iteration + 1}: ${hit.uncertain ? 'uncertain' : `${Math.round(hit.errorMs!)} ms`}`).join(', ') || 'Waiting for resolved hits'}</p></details>
         <p className="waveform-note">Fresh looping state can differ from original capture. Later repetitions may settle differently; loop joins can add attacks.</p>
       </div>}
+      {source !== 'simulation' && <DetectionDetails open={detailsOpen} toggle={() => setDetailsOpen(value => !value)} settings={practice.detectorSettings}
+        originalSettings={practice.recordedTake?.settings.detector} supported={practice.detectorSettingsSupported} configure={patch => void practice.configureDetector(patch)} reset={() => void practice.resetDetector()}
+        candidates={candidates} selected={inspectedCandidate} select={setInspectedCandidate} page={activeCandidatePage} setPage={setCandidatePage}
+        dropped={diagnosticsDropped} diagnosticsSupported={diagnosticsSupported} context={review ? currentComparison && replay ? `Current loop ${replay.iteration + 1} · fresh run ${replay.run}` : 'Original capture' : source === 'microphone' ? 'Live detector candidates' : 'Latest live candidates'} />}
       <div className="metronome-control">
         <div className="metronome-heading"><span className="small-label">METRONOME</span>
           <button className={`metronome-toggle ${practice.metronomeActive ? 'is-playing' : ''}`} aria-label="Metronome sound" aria-pressed={metronomeEnabled}

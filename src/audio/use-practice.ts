@@ -1,9 +1,10 @@
+import { DEFAULT_DETECTOR_SETTINGS, normalizeDetectorSettings, MAX_DIAGNOSTIC_CANDIDATES, type ReviewedCandidate, type DetectorSettings } from './detector-contract'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TimingEngine, type InterpretationMode } from './engine'
 import { createAudioCapture, type CaptureInfo } from './capture'
 import { Capacitor } from '@capacitor/core'
 import { BrowserBarReplay, type ReplayState } from './replay'
-import { DEFAULT_START_SENSITIVITY } from './start-sensitivity'
+import { DEFAULT_START_SENSITIVITY, startingStrength } from './start-sensitivity'
 import { BarWaveformBuffer, emptyWaveform } from './bar-waveform'
 import { simulationWaveform } from './simulation-waveform'
 import type { DetectedOnset } from './onset-detector'
@@ -13,6 +14,9 @@ export type CaptureMode = 'single' | 'auto'
 import { TakeRecorder, recordedBar, recordedBarCount, initialReviewBar, type RecordedTake, type TakeEndReason } from './recorded-take'
 type Source = 'off' | 'microphone' | 'simulation' | 'replay'
 export function usePractice(bpm: number, mode: InterpretationMode, startSensitivity = DEFAULT_START_SENSITIVITY, metronomeOptions = DEFAULT_METRONOME) {
+  const [detectorSettings, setDetectorSettings] = useState<DetectorSettings>({ ...DEFAULT_DETECTOR_SETTINGS })
+  const detectorOptions = useRef<DetectorSettings>({ ...DEFAULT_DETECTOR_SETTINGS })
+  const [liveDiagnostics, setLiveDiagnostics] = useState<{ candidates: ReviewedCandidate[]; dropped: number; supported: boolean }>({ candidates: [], dropped: 0, supported: false })
   const replay = useRef<BrowserBarReplay | null>(null)
   const [replayState, setReplayState] = useState<ReplayState | null>(null)
   const recorder = useRef(new TakeRecorder())
@@ -135,6 +139,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
     await stopping
     if (generation.current !== activeGeneration) return
     setReplayState(null)
+    setLiveDiagnostics({ candidates: [], dropped: 0, supported: false })
     engine.current.configure(settings.current)
     setRecordingNotice(null)
     setCaptureMode(requestedMode)
@@ -156,6 +161,8 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
             setCaptureNotice('Recording interrupted · a new take needs a fresh beat')
           }
         } else setRecordingNotice('Recorded bar review unavailable · update the mobile audio plugin')
+        const candidates: ReviewedCandidate[] = frame.diagnostics?.candidates.map(candidate => ({ ...candidate })) ?? []
+        recorder.current.appendDiagnostics(frame.diagnostics)
         for (const onset of frame.onsets) {
           if (recorder.current.limitTime !== null && onset.time >= recorder.current.limitTime) break
           const deadline = engine.current.silenceDeadline
@@ -168,10 +175,22 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
           const state = engine.current.snapshot(onset.time)
           if (state.status === 'playing' && state.phaseOrigin === onset.time) {
             setRecordedTake(null)
-            recorder.current.begin(onset.time, settings.current, frame.source)
+            recorder.current.begin(onset.time, { ...settings.current, detector: frame.source === 'web' ? detectorOptions.current : undefined }, frame.source)
           }
+          const acquisition: ReviewedCandidate['acquisition'] = state.phaseOrigin === onset.time ? 'started'
+            : state.lastHitTime === onset.time ? 'not-required'
+            : onset.strength < startingStrength(settings.current.startSensitivity) ? 'below-start-level' : 'low-confidence'
+          const acquisitionGate = acquisition === 'not-required' ? undefined : { minimumStrength: startingStrength(settings.current.startSensitivity), minimumConfidence: 0.55 }
+          recorder.current.annotateCandidate(onset.time, acquisition, acquisitionGate)
+          const candidate = candidates.find(candidate => candidate.accepted && candidate.time === onset.time)
+          if (candidate) { candidate.acquisition = acquisition; candidate.acquisitionGate = acquisitionGate }
           if (state.lastHitTime === onset.time) recorder.current.accept(onset)
         }
+        if (frame.diagnostics) setLiveDiagnostics(previous => {
+          const combined = [...previous.candidates, ...candidates]
+          return { candidates: combined.slice(-MAX_DIAGNOSTIC_CANDIDATES), supported: true,
+            dropped: previous.dropped + frame.diagnostics!.dropped + Math.max(0, combined.length - MAX_DIAGNOSTIC_CANDIDATES) }
+        })
         const next = engine.current.snapshot(frame.time)
         if (next.status === 'paused') finishTake('silence', next.lastHitTime === null || next.lastHitTime === undefined ? frame.time : next.lastHitTime + 240 / next.bpm)
         const coaching = coach.current.update(next, frame.time, outputOptions.current)
@@ -218,7 +237,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
         setOutputNotice(message)
         setMetronomeActive(false)
       },
-    }, { deviceId })
+    }, { deviceId, detectorSettings: detectorOptions.current })
     capture.current = audio
     try {
       const info = await audio.start()
@@ -298,7 +317,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
         if (generation.current !== activeGeneration) return
         setError(message)
         void stop()
-      })
+      }, detectorOptions.current)
       replay.current = output
       output.setMetronome(outputOptions.current)
       await output.start()
@@ -312,6 +331,16 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
   }, [recordedTake, reviewBarIndex, stop])
   // Settings controls call this boundary to begin an equivalent fresh run.
   const restartReplay = useCallback(async () => { if (replay.current) await playBar() }, [playBar])
+  const configureDetector = useCallback(async (patch: Partial<DetectorSettings>) => {
+    if (Capacitor.isNativePlatform()) return
+    const next = normalizeDetectorSettings({ ...detectorOptions.current, ...patch })
+    if (JSON.stringify(next) === JSON.stringify(detectorOptions.current)) return
+    detectorOptions.current = next
+    setDetectorSettings(next)
+    capture.current?.setDetectorSettings?.(next)
+    if (replay.current) await playBar()
+  }, [playBar])
+  const resetDetector = useCallback(() => configureDetector(DEFAULT_DETECTOR_SETTINGS), [configureDetector])
   const reviewCurrentBar = useCallback(async () => { await stop() }, [stop])
   const selectBar = useCallback(async (index: number) => {
     if (index === reviewBarIndex) return
@@ -321,5 +350,5 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
   const previousBar = useCallback(() => selectBar(Math.max(0, reviewBarIndex - 1)), [selectBar, reviewBarIndex])
   const nextBar = useCallback(() => selectBar(Math.min(reviewBarCount - 1, reviewBarIndex + 1)), [selectBar, reviewBarCount, reviewBarIndex])
 
-  return { playBar, restartReplay, replayState, recordedTake, reviewBar, reviewBarIndex, reviewBarCount, previousBar, nextBar, reviewCurrentBar, recordingNotice, snapshot, captureTime: now.current, waveform, waveformSource, source, captureMode, busy, error, captureInfo, captureNotice, outputNotice, metronomeActive, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
+  return { liveDiagnostics, detectorSettings, configureDetector, resetDetector, detectorSettingsSupported: !Capacitor.isNativePlatform(), playBar, restartReplay, replayState, recordedTake, reviewBar, reviewBarIndex, reviewBarCount, previousBar, nextBar, reviewCurrentBar, recordingNotice, snapshot, captureTime: now.current, waveform, waveformSource, source, captureMode, busy, error, captureInfo, captureNotice, outputNotice, metronomeActive, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
 }

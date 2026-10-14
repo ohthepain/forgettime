@@ -1,14 +1,16 @@
+import type { InspectableCandidate } from './DetectionDetails'
 import { ChevronLeft, ChevronRight, Play, Pause } from 'lucide-react'
 import { HIT_STRENGTH_COLORS, hitStrengthColor, WAVEFORM_COLUMNS, type BarWaveformSnapshot } from '../audio/bar-waveform'
 import type { TrackingStatus } from '../audio/engine'
 import { startingStrength } from '../audio/start-sensitivity'
 
-export function BarWaveform({ waveform, source, status, startSensitivity, review, comparison }: {
+export function BarWaveform({ waveform, source, status, startSensitivity, review, comparison, diagnostics }: {
   waveform: BarWaveformSnapshot
   source: 'off' | 'microphone' | 'simulation' | 'replay'
   status: TrackingStatus
   startSensitivity: number
   review?: { index: number; count: number; availableFraction: number; interrupted: boolean; previous: () => void; next: () => void; select: () => void; loop?: () => void; canLoop?: boolean }
+  diagnostics?: { candidates: InspectableCandidate[]; selectedId?: number; select: (candidate: InspectableCandidate) => void }
   comparison?: { current: boolean; select: (current: boolean) => void }
 }) {
   const playing = status === 'playing'
@@ -49,6 +51,10 @@ export function BarWaveform({ waveform, source, status, startSensitivity, review
           <title>{`${Math.round(hit.strength * 100)}% input peak${hit.confidence < 0.55 ? ' · uncertain attack' : ''}`}</title>
           <line x1={x(hit.position)} x2={x(hit.position)} y1="12" y2="103" stroke={hitStrengthColor(hit.strength)} strokeDasharray={hit.confidence < 0.55 ? '3 3' : undefined} vectorEffect="non-scaling-stroke" />
           <circle cx={x(hit.position)} cy="9" r="3" fill={hitStrengthColor(hit.strength)} />
+        </g>)}
+        {diagnostics?.candidates.filter(candidate => candidate.position !== undefined && candidate.position >= 0 && candidate.position <= 1 && (!candidate.accepted || candidate.acquisition === 'below-start-level' || candidate.acquisition === 'low-confidence')).map(candidate => <g key={`candidate-${candidate.id}`} className="waveform-candidate" role="button" tabIndex={0} aria-label={`Select rejected candidate ${candidate.id}`} onClick={() => diagnostics.select(candidate)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); diagnostics.select(candidate) } }}>
+          <rect x={x(candidate.position!) - 8} width="16" height="112" fill="transparent" />
+          <line x1={x(candidate.position!)} x2={x(candidate.position!)} y1="20" y2="102" stroke={diagnostics.selectedId === candidate.id ? '#bbc7cd' : '#61717c'} strokeDasharray="2 4" vectorEffect="non-scaling-stroke" />
         </g>)}
         {review && review.availableFraction < 1 && <rect x={x(review.availableFraction)} y="0" width={504 * (1 - review.availableFraction)} height="112" fill="#10161ecc"><title>No recorded audio in this portion</title></rect>}
         {playing && hasReference && <line className="waveform-playhead" x1={x(waveform.progress!)} x2={x(waveform.progress!)} y1="0" y2="112" vectorEffect="non-scaling-stroke" />}

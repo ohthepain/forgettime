@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { DEFAULT_DETECTOR_SETTINGS } from '../../../src/audio/detector-contract'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createAudioCapture } from '../../../src/audio/capture'
 
@@ -73,6 +74,23 @@ function webAudio(settings: MediaTrackSettings = {}, latency = { input: 0, base:
 }
 
 describe('browser capture recovery', () => {
+  it('applies browser controls to subsequent source PCM without a capture restart', async () => {
+    const web = webAudio()
+    const frames: import('../../../src/audio/capture').CaptureFrame[] = []
+    const capture = createAudioCapture({ onFrame: frame => frames.push(frame) })
+    await capture.start()
+    const samples = new Float32Array(24000)
+    for (let i = 0; i < 256; i++) samples[4800 + i] = (i % 2 ? -0.05 : 0.05) * Math.exp(-i / 100)
+    web.emit({ type: 'samples', startFrame: 0, sampleRate: 48000, samples })
+    expect(frames.at(-1)!.onsets).toHaveLength(1)
+    capture.setDetectorSettings!({ ...DEFAULT_DETECTOR_SETTINGS, minimumRms: 0.1 })
+    web.emit({ type: 'samples', startFrame: 24000, sampleRate: 48000, samples })
+    expect(frames.at(-1)!.onsets).toEqual([])
+    expect(frames.at(-1)!.diagnostics!.candidates.some(candidate => candidate.reasons.includes('level'))).toBe(true)
+    expect(web.getUserMedia).toHaveBeenCalledOnce()
+    await capture.stop()
+  })
+
   it('corrects metronome output for reported device latency while keeping capture timestamps untouched', async () => {
     const web = webAudio({}, { input: 0.1, base: 0.01, output: 0.14 })
     const onFrame = vi.fn()

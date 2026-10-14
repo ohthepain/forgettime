@@ -5,14 +5,18 @@ import { PracticeScreen } from './PracticeScreen'
 import { usePreferences } from '../lib/preferences'
 import { usePractice } from '../audio/use-practice'
 import { TimingEngine, type ResolvedHit } from '../audio/engine'
+import { DEFAULT_DETECTOR_SETTINGS } from '../audio/detector-contract'
+import { OnsetDetector } from '../audio/onset-detector'
 import { recordedBar, type RecordedTake } from '../audio/recorded-take'
 import { emptyWaveform } from '../audio/bar-waveform'
 
 vi.mock('../audio/use-practice', () => ({ usePractice: vi.fn() }))
 vi.mock('./AccountDialog', () => ({ AccountDialog: () => null }))
+afterEach(() => cleanup())
 
 function practice(): ReturnType<typeof usePractice> {
   return {
+    detectorSettings: { ...DEFAULT_DETECTOR_SETTINGS }, configureDetector: vi.fn(), resetDetector: vi.fn(), detectorSettingsSupported: true, liveDiagnostics: { candidates: [], dropped: 0, supported: false },
     playBar: vi.fn(), restartReplay: vi.fn(), replayState: null,
     recordedTake: null, reviewBar: null, reviewBarIndex: 0, reviewBarCount: 0, recordingNotice: null,
     previousBar: vi.fn(), nextBar: vi.fn(), reviewCurrentBar: vi.fn(),
@@ -112,7 +116,7 @@ it('offers waveform loop playback, identifies replay, and preserves original/cur
   const { rerender } = render(<PracticeScreen />)
   fireEvent.click(screen.getByRole('button', { name: 'Loop recorded bar' }))
   expect(state.playBar).toHaveBeenCalled()
-  state = { ...state, source: 'replay', snapshot: { ...state.snapshot, bpm: 120, status: 'playing', phaseOrigin: 0, beat: 1 }, replayState: { metronomeActive: false, run: 1, iteration: 1, time: 2, progress: 0, snapshot: state.snapshot, onsets: [], results: [] } }
+  state = { ...state, source: 'replay', snapshot: { ...state.snapshot, bpm: 120, status: 'playing', phaseOrigin: 0, beat: 1 }, replayState: { settings: { ...DEFAULT_DETECTOR_SETTINGS }, candidates: [], diagnosticsDropped: 0, metronomeActive: false, run: 1, iteration: 1, time: 2, progress: 0, snapshot: state.snapshot, onsets: [], results: [] } }
   rerender(<PracticeScreen />)
   expect(screen.getByText('BAR REPLAY')).toBeDefined()
   expect(screen.getByText(/Fresh looping state can differ/)).toBeDefined()
@@ -122,4 +126,28 @@ it('offers waveform loop playback, identifies replay, and preserves original/cur
   expect((screen.getByRole('spinbutton') as HTMLInputElement).disabled).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: 'Pause recorded bar' }))
   expect(state.stop).toHaveBeenCalled()
+})
+
+it('reveals candidate decisions accessibly and commits detector controls separately from Start sensitivity', () => {
+  const detector = new OnsetDetector()
+  const pcm = new Float32Array(48000)
+  for (let i = 0; i < 128; i++) pcm[4800 + i] = (i % 2 ? -0.003 : 0.003)
+  detector.process(pcm, 0, 48000)
+  const diagnostics = detector.drainDiagnostics()
+  state = { ...practice(), liveDiagnostics: { ...diagnostics, supported: true } }
+  vi.mocked(usePractice).mockImplementation(() => state)
+  render(<PracticeScreen />)
+  expect(screen.queryByRole('group', { name: 'Detector controls' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Detection details' }))
+  expect(screen.getByText(/Start sensitivity only gates live acquisition/)).toBeDefined()
+  fireEvent.click(screen.getAllByRole('button', { name: /Inspect candidate/ })[0])
+  expect(screen.getByText('Detector rejected')).toBeDefined()
+  expect(screen.getByText(/level,.*contrast/)).toBeDefined()
+  const control = screen.getByRole('spinbutton', { name: 'Minimum level' })
+  fireEvent.change(control, { target: { value: '0.02' } })
+  fireEvent.blur(control)
+  expect(state.configureDetector).toHaveBeenCalledWith({ minimumRms: 0.02 })
+  fireEvent.click(screen.getByRole('button', { name: 'Reset detector defaults' }))
+  expect(state.resetDetector).toHaveBeenCalled()
+  expect(state.restartReplay).not.toHaveBeenCalled() // Visibility and candidate selection do not restart.
 })

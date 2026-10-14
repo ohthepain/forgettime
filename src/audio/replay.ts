@@ -1,11 +1,16 @@
+import { DEFAULT_DETECTOR_SETTINGS, MAX_DIAGNOSTIC_CANDIDATES, normalizeDetectorSettings, type DetectorCandidate, type DetectorSettings } from './detector-contract'
 import { DEFAULT_METRONOME, MetronomeCoach, type MetronomeOptions } from './metronome'
 import { OnsetDetector, type DetectedOnset } from './onset-detector'
 import { TimingEngine, type ResolvedHit, type TimingSnapshot } from './engine'
 import { recordedBar, type RecordedTake } from './recorded-take'
 
 export interface ReplayOnset extends DetectedOnset { iteration: number; position: number }
+export interface ReplayCandidate extends DetectorCandidate { iteration: number; position: number }
 export interface ReplayResult extends ResolvedHit { iteration: number; position: number }
 export interface ReplayState {
+  settings: DetectorSettings
+  candidates: ReplayCandidate[]
+  diagnosticsDropped: number
   run: number
   iteration: number
   time: number
@@ -26,7 +31,10 @@ export class BrowserBarReplay {
   private clicks: { node: OscillatorNode; gain: GainNode; end: number }[] = []
   private context: AudioContext | null = null
   private output: AudioBufferSourceNode | null = null
-  private detector = new OnsetDetector()
+  private detector: OnsetDetector
+  private candidates: ReplayCandidate[] = []
+  private diagnosticsDropped = 0
+  private settings: DetectorSettings
   private engine: TimingEngine
   private cursor = 0
   private started = 0
@@ -39,7 +47,9 @@ export class BrowserBarReplay {
   private readonly bar
   private readonly origin: number
 
-  constructor(take: RecordedTake, index: number, private onState: (state: ReplayState) => void, private onError: (message: string) => void) {
+  constructor(take: RecordedTake, index: number, private onState: (state: ReplayState) => void, private onError: (message: string) => void, settings: DetectorSettings = DEFAULT_DETECTOR_SETTINGS) {
+    this.settings = normalizeDetectorSettings(settings)
+    this.detector = new OnsetDetector(this.settings)
     this.bar = recordedBar(take, index)
     if (!this.bar.complete || !this.bar.audio.samples.length) throw new Error('Loop playback needs a complete recorded bar. Unrecorded audio cannot be replayed.')
     this.origin = this.bar.start - this.bar.audio.startFrame / this.bar.audio.sampleRate
@@ -90,6 +100,9 @@ export class BrowserBarReplay {
       const packet = new Float32Array(128)
       for (let i = 0; i < packet.length; i++) packet[i] = samples[(this.cursor + i) % samples.length]
       const onsets = this.detector.process(packet, this.cursor / sampleRate, sampleRate)
+      const diagnostics = this.detector.drainDiagnostics()
+      this.diagnosticsDropped += diagnostics.dropped
+      this.candidates.push(...diagnostics.candidates.map(candidate => ({ ...candidate, ...this.position(candidate.time) })))
       this.cursor += packet.length
       for (const onset of onsets) {
         this.engine.addOnset(onset)
@@ -98,6 +111,11 @@ export class BrowserBarReplay {
       this.engine.snapshot(this.detector.processedThrough ?? 0)
       const oldest = this.position(this.cursor / sampleRate).iteration - 1
       this.onsets = this.onsets.filter(hit => hit.iteration >= oldest)
+      this.candidates = this.candidates.filter(candidate => candidate.iteration >= oldest)
+      if (this.candidates.length > MAX_DIAGNOSTIC_CANDIDATES) {
+        this.diagnosticsDropped += this.candidates.length - MAX_DIAGNOSTIC_CANDIDATES
+        this.candidates = this.candidates.slice(-MAX_DIAGNOSTIC_CANDIDATES)
+      }
       this.results = this.results.filter(hit => hit.iteration >= oldest)
     }
     this.publish(time)
@@ -115,7 +133,7 @@ export class BrowserBarReplay {
     this.pendingPresentation = []
     snapshot.hits = [...delivered.values()].map(hit => ({ ...hit, id: this.run * 1_000_000 + hit.id }))
     const metronomeActive = this.scheduleMetronome(snapshot, time)
-    this.onState({ metronomeActive, run: this.run, iteration, time, progress: position, snapshot, onsets: this.onsets.slice(), results: this.results.slice() })
+    this.onState({ settings: this.settings, candidates: this.candidates.slice(), diagnosticsDropped: this.diagnosticsDropped, metronomeActive, run: this.run, iteration, time, progress: position, snapshot, onsets: this.onsets.slice(), results: this.results.slice() })
   }
 
   setMetronome(options: MetronomeOptions) {

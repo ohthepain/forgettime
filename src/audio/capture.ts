@@ -1,3 +1,4 @@
+import { type DetectorSettings, type DetectorDiagnostics } from './detector-contract'
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core'
 import { ForgettimeAudio, type NativeAudioFrame } from 'forgettime-audio'
 import type { CapturedPcm } from './recorded-take'
@@ -30,6 +31,8 @@ export interface CaptureFrame extends CaptureInfo {
   metronomeAvailable?: boolean
   /** Optional retained audio, on the same sample clock as onset timestamps. */
   pcm?: CapturedPcm
+  /** Missing means unsupported; an empty supported batch is not missing data. */
+  diagnostics?: DetectorDiagnostics
 }
 
 export interface CaptureCallbacks {
@@ -45,10 +48,11 @@ export interface AudioCapture {
   start: () => Promise<CaptureInfo>
   stop: () => Promise<void>
   setMetronome: (plan: MetronomePlan | null) => void
+  setDetectorSettings?: (settings: DetectorSettings) => void
 }
 
 /** Foreground-only live capture. Native builds require the native plugin. */
-export function createAudioCapture(callbacks: CaptureCallbacks, options: { deviceId?: string } = {}): AudioCapture {
+export function createAudioCapture(callbacks: CaptureCallbacks, options: { deviceId?: string; detectorSettings?: DetectorSettings } = {}): AudioCapture {
   let generation = 0
   let running = false
   let starting: Promise<CaptureInfo> | undefined
@@ -63,7 +67,7 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
   let outputFailed = false
   let outputPending = false
   let latestPlan: MetronomePlan | null = null
-  const detector = new OnsetDetector()
+  const detector = new OnsetDetector(options.detectorSettings)
   const waveform = new WaveformEnvelopeCapture()
   const outputAlignment = new BrowserOutputAlignment()
 
@@ -283,6 +287,7 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
               onsets, level: Math.min(1, Math.sqrt(energy / samples.length)), sampleRate,
               waveform: waveform.process(samples, time, sampleRate),
               pcm: { startFrame, samples },
+              diagnostics: detector.drainDiagnostics(),
               source: 'web', timestampQuality: 'sample-clock',
             })
           }
@@ -351,5 +356,8 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
     void send()
   }
 
-  return { start, stop, setMetronome }
+  return { start, stop, setMetronome, setDetectorSettings: settings => {
+    if (Capacitor.isNativePlatform()) throw new Error('Native detector tuning requires an updated audio plugin.')
+    detector.configure(settings)
+  } }
 }

@@ -1,3 +1,4 @@
+import { MAX_DIAGNOSTIC_CANDIDATES, type DetectorSettings, type DetectorDiagnostics, type ReviewedCandidate } from './detector-contract'
 import type { DetectedOnset } from './onset-detector'
 import type { InterpretationMode, ResolvedHit } from './engine'
 import { WAVEFORM_COLUMNS, type BarWaveformSnapshot } from './bar-waveform'
@@ -5,7 +6,7 @@ import { WAVEFORM_COLUMNS, type BarWaveformSnapshot } from './bar-waveform'
 /** Absolute sample positions share the onset clock within one continuous capture. */
 export interface CapturedPcm { startFrame: number; samples: Float32Array }
 export interface RecordedAudio extends CapturedPcm { sampleRate: number }
-export interface TakeSettings { bpm: number; mode: InterpretationMode; startSensitivity: number }
+export interface TakeSettings { bpm: number; mode: InterpretationMode; startSensitivity: number; detector?: DetectorSettings }
 export type TakeEndReason = 'silence' | 'stopped' | 'interrupted' | 'limit'
 export interface RecordedTake {
   audio: RecordedAudio
@@ -16,12 +17,16 @@ export interface RecordedTake {
   settings: TakeSettings
   onsets: DetectedOnset[]
   results: ResolvedHit[]
+  diagnostics?: { candidates: ReviewedCandidate[]; dropped: number }
   endReason: TakeEndReason
 }
 export const MAX_TAKE_SECONDS = 120
 
 /** Bounded, on-device latest-take PCM. Never insert silence for missing samples. */
 export class TakeRecorder {
+  private pendingDiagnostics: ReviewedCandidate[] = []
+  private pendingDropped = 0
+  private diagnosticsSupported = false
   private chunks: CapturedPcm[] = []
   private rate = 0
   private expectedFrame: number | null = null
@@ -54,11 +59,34 @@ export class TakeRecorder {
     return interrupted
   }
 
+  appendDiagnostics(batch: DetectorDiagnostics | undefined) {
+    if (!batch) return
+    this.diagnosticsSupported = true
+    const fresh: ReviewedCandidate[] = batch.candidates.map(candidate => ({ ...candidate, settings: { ...candidate.settings }, measurements: { ...candidate.measurements }, reasons: [...candidate.reasons] }))
+    const cutoff = fresh[0]?.time
+    if (cutoff !== undefined) this.pendingDiagnostics = this.pendingDiagnostics.filter(candidate => candidate.time >= cutoff - 0.1)
+    this.pendingDiagnostics.push(...fresh)
+    this.pendingDropped = batch.dropped
+    if (this.pendingDiagnostics.length > MAX_DIAGNOSTIC_CANDIDATES) {
+      this.pendingDropped += this.pendingDiagnostics.length - MAX_DIAGNOSTIC_CANDIDATES
+      this.pendingDiagnostics = this.pendingDiagnostics.slice(-MAX_DIAGNOSTIC_CANDIDATES)
+    }
+    if (this.active?.diagnostics) {
+      const remaining = MAX_DIAGNOSTIC_CANDIDATES - this.active.diagnostics.candidates.length
+      this.active.diagnostics.candidates.push(...fresh.slice(0, remaining))
+      this.active.diagnostics.dropped += batch.dropped + Math.max(0, fresh.length - remaining)
+    }
+  }
+  annotateCandidate(time: number, acquisition: ReviewedCandidate['acquisition'], acquisitionGate?: ReviewedCandidate['acquisitionGate']) {
+    for (const candidate of this.pendingDiagnostics) if (candidate.accepted && candidate.time === time) { candidate.acquisition = acquisition; candidate.acquisitionGate = acquisitionGate }
+    for (const candidate of this.active?.diagnostics?.candidates ?? []) if (candidate.accepted && candidate.time === time) { candidate.acquisition = acquisition; candidate.acquisitionGate = acquisitionGate }
+  }
   begin(origin: number, settings: TakeSettings, source: RecordedTake['source']) {
     if (!this.chunks.length) return
     const desired = Math.floor((origin - 0.05) * this.rate)
     this.firstFrame = Math.max(this.chunks[0].startFrame, desired)
-    this.active = { origin, settings: { ...settings }, source, continuity: this.continuity, onsets: [], results: [] }
+    this.active = { origin, settings: { ...settings, detector: settings.detector ? { ...settings.detector } : undefined }, source, continuity: this.continuity, onsets: [], results: [],
+      diagnostics: this.diagnosticsSupported ? { candidates: this.pendingDiagnostics.filter(candidate => candidate.time >= this.firstFrame / this.rate), dropped: this.pendingDropped } : undefined }
     this.chunks = this.chunks.filter(chunk => chunk.startFrame + chunk.samples.length > this.firstFrame)
   }
   accept(onset: DetectedOnset) { this.active?.onsets.push({ ...onset }) }
@@ -73,13 +101,17 @@ export class TakeRecorder {
       const to = Math.min(end, chunk.startFrame + chunk.samples.length)
       if (to > from) samples.set(chunk.samples.subarray(from - chunk.startFrame, to - chunk.startFrame), from - this.firstFrame)
     }
-    const take = { ...this.active, audio: { sampleRate: this.rate, startFrame: this.firstFrame, samples }, endReason }
+    const diagnostics = this.active.diagnostics ? { ...this.active.diagnostics, candidates: this.active.diagnostics.candidates.filter(candidate => candidate.time < end / this.rate).map(candidate => ({ ...candidate })) } : undefined
+    const take = { ...this.active, diagnostics, audio: { sampleRate: this.rate, startFrame: this.firstFrame, samples }, endReason }
     this.active = null
     // A packet may also contain the next take's first hit. Preserve that packet.
     this.chunks = this.chunks.slice(-2)
     return take
   }
   resetContinuity() {
+    this.pendingDiagnostics = []
+    this.pendingDropped = 0
+    this.diagnosticsSupported = false
     this.chunks = []
     this.active = null
     this.expectedFrame = null

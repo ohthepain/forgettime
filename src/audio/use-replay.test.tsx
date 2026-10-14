@@ -35,13 +35,13 @@ beforeEach(() => {
   vi.stubGlobal('cancelAnimationFrame', vi.fn())
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
-async function take(packet = 997, rate = 48000, attacks = [0.1, 0.6, 1.1, 1.6, 2.1, 2.6, 3.1, 3.6]) {
+async function take(packet = 997, rate = 48000, attacks = [0.1, 0.6, 1.1, 1.6, 2.1, 2.6, 3.1, 3.6], amplitude = 0.8) {
   const hook = renderHook(() => usePractice(120, 'straight', 50, { enabled: false, mode: 'always', thresholdMs: 100 }))
   await act(() => hook.result.current.listen('auto'))
   const detector = new OnsetDetector()
   const pcm = new Float32Array(6 * rate)
   for (const time of attacks) {
-    for (let i = 0; i < 256; i++) pcm[Math.round(time * rate) + i] = (i % 2 ? -0.8 : 0.8) * Math.exp(-i / 100)
+    for (let i = 0; i < 256; i++) pcm[Math.round(time * rate) + i] = (i % 2 ? -amplitude : amplitude) * Math.exp(-i / 100)
   }
   act(() => {
     for (let startFrame = 0; startFrame < pcm.length; startFrame += packet) {
@@ -208,4 +208,29 @@ it('delivers each newly resolved score once even when presentation callbacks spa
   expect(new Set(first.snapshot.hits.map(hit => hit.id)).size).toBe(first.snapshot.hits.length)
   advance(2.81)
   expect(result.current.snapshot.hits.every(hit => hit.time > 1.5)).toBe(true)
+})
+it('restarts a selected replay with real detector settings while preserving its PCM, grid and original results', async () => {
+  const { result } = await take(997, 48000, undefined, 0.2)
+  const original = result.current.recordedTake!
+  const samples = result.current.reviewBar!.audio.samples.slice()
+  await act(() => result.current.playBar())
+  advance(2.8)
+  const firstRun = result.current.replayState!.run
+  const defaultOnsets = result.current.replayState!.onsets
+  expect(result.current.replayState!.candidates.some(candidate => candidate.reasons.includes('warming-up'))).toBe(true)
+  expect(result.current.replayState!.onsets.length).toBeGreaterThan(0)
+  await act(() => result.current.configureDetector({ minimumRms: 0.1, contrastRatio: 4 }))
+  expect(result.current.replayState!.run).toBe(firstRun + 1)
+  expect(result.current.captureTime).toBe(0)
+  advance(2.8)
+  expect(result.current.snapshot.phaseOrigin).toBe(0)
+  expect(result.current.recordedTake).toBe(original)
+  expect(OutputContext.latest.source.buffer!.samples).toEqual(samples)
+  expect(result.current.replayState!.candidates.some(candidate => !candidate.accepted && candidate.reasons.includes('contrast'))).toBe(true)
+  expect(result.current.replayState!.settings).toMatchObject({ version: 1, minimumRms: 0.1, contrastRatio: 4 })
+  expect(result.current.replayState!.onsets).toEqual([])
+  await act(() => result.current.resetDetector())
+  expect(result.current.detectorSettings).toMatchObject({ version: 1, minimumRms: 0.006, contrastRatio: 1.8, minSeparationMs: 18, recoverySeconds: 4 })
+  advance(2.8)
+  expect(result.current.replayState!.onsets).toEqual(defaultOnsets)
 })
