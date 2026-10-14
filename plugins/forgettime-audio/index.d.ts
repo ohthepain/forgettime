@@ -25,7 +25,7 @@ export interface ForgettimeAudioPlugin {
   acknowledgeFrame(options: { sessionId: string; endFrame: number }): Promise<void>;
   setMetronome(options: { plan: NativeMetronomePlan | null }): Promise<void>;
   addListener(name: 'audioFrame', callback: (event: NativeAudioFrame) => void): Promise<PluginListenerHandle>;
-  addListener(name: 'captureStopped', callback: (event: { reason: string }) => void): Promise<PluginListenerHandle>;
-  addListener(name: 'captureError', callback: (event: { message: string }) => void): Promise<PluginListenerHandle>;
+  addListener(name: 'captureStopped', callback: (event: { reason: string; sessionId?: string }) => void): Promise<PluginListenerHandle>;
+  addListener(name: 'captureError', callback: (event: { message: string; sessionId?: string }) => void): Promise<PluginListenerHandle>;
 }
 export declare const ForgettimeAudio: ForgettimeAudioPlugin;

@@ -156,6 +156,19 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
           let nativeSession: string | undefined
           let nativeRate: number | undefined
           const pendingFrames: NativeAudioFrame[] = []
+          type TerminalEvent = { sessionId?: string } & ({ message: string } | { reason: string })
+          const pendingTerminals: TerminalEvent[] = []
+          const receiveTerminal = (event: TerminalEvent) => {
+            if (!current()) return
+            if (!nativeSession) {
+              if (pendingTerminals.length < 64) pendingTerminals.push(event)
+              else fail(new Error('Native audio startup could not keep up. Restart listening.'))
+              return
+            }
+            if (event.sessionId && event.sessionId !== nativeSession) return
+            if ('message' in event) fail(new Error(event.message))
+            else interrupt(event.reason)
+          }
           let pendingSamples = 0
           const receiveNative = (frame: NativeAudioFrame) => {
             if (!current()) return
@@ -195,13 +208,9 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
           }
           listeners.push(await ForgettimeAudio.addListener('audioFrame', receiveNative))
           ensureCurrent()
-          listeners.push(await ForgettimeAudio.addListener('captureError', ({ message }) => {
-            if (current()) fail(new Error(message))
-          }))
+          listeners.push(await ForgettimeAudio.addListener('captureError', receiveTerminal))
           ensureCurrent()
-          listeners.push(await ForgettimeAudio.addListener('captureStopped', ({ reason }) => {
-            if (current()) interrupt(reason)
-          }))
+          listeners.push(await ForgettimeAudio.addListener('captureStopped', receiveTerminal))
           ensureCurrent()
           // Set before awaiting, so stop() can cancel a native permission request.
           nativeStarted = true
@@ -213,6 +222,8 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
           info = { ...nativeInfo, source: 'native' }
           for (const frame of pendingFrames) receiveNative(frame)
           pendingFrames.length = 0
+          for (const event of pendingTerminals) receiveTerminal(event)
+          pendingTerminals.length = 0
         } else {
           if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
             throw new Error('Microphone access needs HTTPS or localhost and a supported browser.')

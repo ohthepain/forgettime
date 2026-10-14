@@ -142,7 +142,7 @@ public final class ForgettimeAudioPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private func captureFailed(_ current: AudioCaptureSession, message: String) {
         guard capture === current else { return }
-        notifyListeners("captureError", data: ["message": message])
+        notifyListeners("captureError", data: ["message": message, "sessionId": current.stream.sessionId])
         stopCapture(reason: "error")
     }
 
@@ -185,7 +185,7 @@ public final class ForgettimeAudioPlugin: CAPPlugin, CAPBridgedPlugin {
         capture = nil
         current.stop()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        notifyListeners("captureStopped", data: ["reason": reason])
+        notifyListeners("captureStopped", data: ["reason": reason, "sessionId": current.stream.sessionId])
     }
 
     deinit {
