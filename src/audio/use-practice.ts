@@ -8,6 +8,7 @@ import { simulationWaveform } from './simulation-waveform'
 import type { DetectedOnset } from './onset-detector'
 import { DEFAULT_METRONOME, MetronomeCoach, type MetronomeOptions } from './metronome'
 
+export type CaptureMode = 'single' | 'auto'
 type Source = 'off' | 'microphone' | 'simulation'
 export function usePractice(bpm: number, mode: InterpretationMode, startSensitivity = DEFAULT_START_SENSITIVITY, metronomeOptions = DEFAULT_METRONOME) {
   const engine = useRef(new TimingEngine({ bpm, mode, startSensitivity }))
@@ -16,6 +17,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
   const [waveformSource, setWaveformSource] = useState<'microphone' | 'simulation'>('microphone')
   const [snapshot, setSnapshot] = useState(() => engine.current.snapshot(0))
   const [source, setSource] = useState<Source>('off')
+  const [captureMode, setCaptureMode] = useState<CaptureMode>('single')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [captureInfo, setCaptureInfo] = useState<CaptureInfo | null>(null)
@@ -46,6 +48,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
     outputFailed.current = false
     setWaveform(keepReview ? waveformBuffer.current.hold() : waveformBuffer.current.reset())
     setSource('off')
+    setCaptureMode('single')
     setBusy(false)
     setLevel(0)
     setCaptureInfo(null)
@@ -96,10 +99,13 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
     }
   }, [stop])
 
-  const listen = useCallback(async () => {
-    await stop(false)
-    setWaveformSource('microphone')
+  const listen = useCallback(async (requestedMode: CaptureMode = 'single') => {
+    const stopping = stop(false)
     const activeGeneration = ++generation.current
+    await stopping
+    if (generation.current !== activeGeneration) return
+    setCaptureMode(requestedMode)
+    setWaveformSource('microphone')
     setBusy(true)
     setError(null)
     now.current = 0
@@ -108,7 +114,17 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
       onFrame: frame => {
         if (generation.current !== activeGeneration) return
         now.current = frame.time
-        for (const onset of frame.onsets) engine.current.addOnset(onset)
+        for (const onset of frame.onsets) {
+          // One packet can span the end of a take. A later onset must not
+          // silently reopen single capture before we inspect the watermark.
+          const deadline = engine.current.silenceDeadline
+          if (requestedMode === 'single' && deadline !== null && onset.time >= deadline - 1e-9) {
+            setWaveform(waveformBuffer.current.hold())
+            void stop()
+            return
+          }
+          engine.current.addOnset(onset)
+        }
         const next = engine.current.snapshot(frame.time)
         const coaching = coach.current.update(next, frame.time, outputOptions.current)
         audio.setMetronome(coaching.plan)
@@ -120,6 +136,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
         setSnapshot(next)
         setCaptureNotice(notice => next.status === 'playing' ? null : notice ? 'Microphone input restored · play to set a fresh beat' : null)
         setLevel(frame.level)
+        if (next.status === 'paused' && requestedMode === 'single') void stop()
       },
       onDiscontinuity: () => {
         if (generation.current !== activeGeneration) return
@@ -201,5 +218,5 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
     animation.current = requestAnimationFrame(tick)
   }, [bpm, stop])
 
-  return { snapshot, captureTime: now.current, waveform, waveformSource, source, busy, error, captureInfo, captureNotice, outputNotice, metronomeActive, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
+  return { snapshot, captureTime: now.current, waveform, waveformSource, source, captureMode, busy, error, captureInfo, captureNotice, outputNotice, metronomeActive, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
 }

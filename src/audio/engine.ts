@@ -145,6 +145,11 @@ export class TimingEngine {
     };
   }
 
+  /** Earliest captured-audio time at which the current take may finish. */
+  get silenceDeadline(): number | null {
+    return this.status === 'playing' && this.lastHit !== null ? this.lastHit + this.beatSeconds * 4 : null;
+  }
+
   private get beatSeconds(): number { return 60 / this.bpm; }
   private get candidates(): Candidate[] {
     return CANDIDATES.filter((candidate) => this.mode === 'auto' || (this.mode === 'straight' ? candidate.divisions !== 3 && candidate.divisions !== 6 : candidate.divisions === 1 || candidate.divisions === 3 || candidate.divisions === 6));

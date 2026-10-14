@@ -90,8 +90,14 @@ export function PracticeScreen() {
         {practice.inputDevices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}
         {practice.deviceId && !practice.inputDevices.some(device => device.deviceId === practice.deviceId) && <option value={practice.deviceId}>Selected microphone (unavailable)</option>}
       </select>{running && <span className="microphone-hint">Stop listening to change input</span>}</div>}
-      {running ? <button className="primary-button stop-button" onClick={() => void practice.stop()}><Square size={15} fill="currentColor" />{source === 'simulation' ? 'Stop simulation' : 'Stop listening'}</button>
-        : <button className="primary-button" disabled={busy} onClick={() => void practice.listen()}><Mic size={18} />{busy ? 'Opening microphone…' : 'Enable microphone'}</button>}
+      <div className="capture-controls" role="group" aria-label="Microphone capture">
+        {running || busy ? <button className="primary-button stop-button" onClick={() => void practice.stop()}><Square size={15} fill="currentColor" />{busy ? 'Cancel microphone' : source === 'simulation' ? 'Stop simulation' : 'Stop listening'}</button>
+          : <button className="primary-button" onClick={() => void practice.listen()}><Mic size={18} />Enable microphone</button>}
+        <button className="capture-auto" aria-label="Auto capture" aria-pressed={practice.captureMode === 'auto'}
+          aria-describedby="capture-mode-note" disabled={busy || (running && practice.captureMode !== 'auto')}
+          onClick={() => void (practice.captureMode === 'auto' ? practice.stop() : practice.listen('auto'))}>Auto</button>
+      </div>
+      <p id="capture-mode-note" className="capture-mode-note">{practice.captureMode === 'auto' ? 'Auto · keeps listening between takes' : 'Single take · microphone stops after a full bar of silence'}</p>
       {error && <p className="error-message" role="alert">{error}</p>}
       {practice.captureNotice && <p className="capture-notice" role="status">{practice.captureNotice}</p>}
       {practice.outputNotice && <p className="capture-notice" role="status">{practice.outputNotice}</p>}
@@ -101,7 +107,7 @@ export function PracticeScreen() {
       {source === 'simulation' && <p className="source-note demo-label">Generated hits · microphone is off</p>}
     </section>
     <footer className="app-footer"><span>Listen to your own time.</span>{!running && <button onClick={() => void practice.simulate()} disabled={busy}>Try a simulation <span aria-hidden="true">↗</span></button>}</footer>
-    {helpOpen && <section className="help-panel"><h2>Make room for the groove.</h2><p>Choose a tempo, enable the microphone, then play. Your first strong hit sets beat 1 immediately. The clock stays fixed, so drifting ahead or behind remains visible.</p><p>Auto considers straight and triplet rhythms across a short sequence. Straight uses eighths and sixteenths; Swing / triplet uses triplet subdivisions. Fills need a little interpretation time. Ambiguous attacks get no precise score.</p><p>Play the starting hit on your intended downbeat. The counter continues through gaps shorter than a full bar. After a full bar without a hit, another strong hit starts a fresh measure. Use Start sensitivity in Settings to choose how firmly you need to play to begin; it does not change detection during the performance.</p><p>Audio is analysed on your device and is never uploaded or saved. Quiet hits under cymbals may be missed. Device timing accuracy still needs real-world calibration. Changing tempo or interpretation starts a fresh reference.</p></section>}
+    {helpOpen && <section className="help-panel"><h2>Make room for the groove.</h2><p>Choose a tempo, enable the microphone, then play. Your first strong hit sets beat 1 immediately. The clock stays fixed, so drifting ahead or behind remains visible.</p><p>Auto considers straight and triplet rhythms across a short sequence. Straight uses eighths and sixteenths; Swing / triplet uses triplet subdivisions. Fills need a little interpretation time. Ambiguous attacks get no precise score.</p><p>Play the starting hit on your intended downbeat. The counter continues through gaps shorter than a full bar. After a full bar without a hit, a single take ends and the microphone stops. Choose Auto beside the microphone button to keep listening and start a fresh take with your next strong hit. Stop ends either mode. Use Start sensitivity in Settings to choose how firmly you need to play to begin; it does not change detection during the performance.</p><p>Audio is analysed on your device and is never uploaded or saved. Quiet hits under cymbals may be missed. Device timing accuracy still needs real-world calibration. Changing tempo or interpretation starts a fresh reference.</p></section>}
     {accountOpen && <AccountDialog onClose={() => setAccountOpen(false)} />}
     {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
   </main>

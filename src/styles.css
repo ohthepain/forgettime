@@ -106,3 +106,5 @@
   .pendulum-arm { transform: none; }
   .beat-number-value, .beat-caption, .beat-dots { transition: none; }
 }
+
+.capture-controls{display:flex;gap:8px}.capture-controls .primary-button{flex:1;min-width:0}.capture-auto{border:1px solid #3b4b50;border-radius:13px;background:#26353a;color:#d8e4e4;min-width:64px;padding:12px;font-size:14px}.capture-auto[aria-pressed=true]{background:#c0ded4;color:#18302c}.capture-mode-note{text-align:center;color:#879398;font-size:11px;line-height:1.6;margin:10px 0 0}

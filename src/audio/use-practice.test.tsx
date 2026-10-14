@@ -3,6 +3,7 @@ import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CaptureCallbacks, CaptureInfo } from './capture'
 import { usePractice } from './use-practice'
+import { OnsetDetector } from './onset-detector'
 
 const mocked = vi.hoisted(() => ({ create: vi.fn() }))
 vi.mock('./capture', () => ({ createAudioCapture: mocked.create }))
@@ -24,6 +25,91 @@ describe('live timing integration', () => {
     vi.stubGlobal('cancelAnimationFrame', vi.fn())
   })
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
+
+  it('does not capture on mount and releases a single take after a full bar of silence', async () => {
+    const { result } = renderHook(() => usePractice(120, 'auto'))
+    expect(mocked.create).not.toHaveBeenCalled()
+    await act(() => result.current.listen())
+    act(() => frame(10, [10]))
+    act(() => frame(11.999))
+    expect(result.current.snapshot).toMatchObject({ status: 'playing', phaseOrigin: 10, beat: 4 })
+    expect(stopCapture).not.toHaveBeenCalled()
+    await act(async () => frame(12))
+    expect(result.current.source).toBe('off')
+    expect(stopCapture).toHaveBeenCalledOnce()
+  })
+
+  it('does not restart a single take from an onset delivered after its silence deadline', async () => {
+    const { result } = renderHook(() => usePractice(120, 'auto'))
+    await act(() => result.current.listen())
+    act(() => frame(10, [10]))
+    await act(async () => frame(12.1, [12.05]))
+    expect(result.current.source).toBe('off')
+    expect(result.current.snapshot.phaseOrigin).toBeNull()
+  })
+
+  it('cannot reopen after Stop while an earlier capture is still releasing', async () => {
+    const { result } = renderHook(() => usePractice(120, 'auto'))
+    await act(() => result.current.listen())
+    let release!: () => void
+    stopCapture.mockImplementationOnce(() => new Promise<void>(resolve => { release = resolve }))
+    let opening!: Promise<void>
+    await act(async () => { opening = result.current.listen('auto'); await Promise.resolve() })
+    await act(() => result.current.stop())
+    await act(async () => { release(); await opening })
+    expect(result.current.source).toBe('off')
+    expect(result.current.captureMode).toBe('single')
+    expect(mocked.create).toHaveBeenCalledOnce()
+  })
+
+  it.each([120, 60])('keeps buffered PCM attacks just before the silence deadline at %i BPM', async bpm => {
+    const { result } = renderHook(() => usePractice(bpm, 'auto'))
+    await act(() => result.current.listen())
+    const detector = new OnsetDetector()
+    const rate = 48000
+    const bar = 240 / bpm
+    const pcm = new Float32Array(Math.ceil((2 * bar + 0.2) * rate))
+    // Synthetic transients, not evidence of acoustic-kit accuracy.
+    for (const start of [0.1, 0.1 + bar - 0.001]) {
+      for (let i = 0; i < 256; i++) pcm[Math.round(start * rate) + i] = (i % 2 ? -0.8 : 0.8) * Math.exp(-i / 100)
+    }
+    let cursor = 0
+    const sendUntil = (end: number) => {
+      while (cursor < Math.min(pcm.length, end * rate)) {
+        const block = pcm.subarray(cursor, cursor + 101)
+        const onsets = detector.process(block, cursor / rate, rate)
+        cursor += block.length
+        callbacks.onFrame({ ...info, time: detector.processedThrough ?? 0, onsets, level: 0 })
+      }
+    }
+    act(() => sendUntil(bar + 0.102))
+    expect(result.current.source).toBe('microphone')
+    expect(result.current.snapshot.phaseOrigin).toBeCloseTo(0.1, 2)
+    expect(result.current.snapshot.lastHitTime).toBeCloseTo(bar + 0.099, 2)
+    act(() => sendUntil(2 * bar + 0.09))
+    expect(result.current.source).toBe('microphone')
+    await act(async () => sendUntil(2 * bar + 0.2))
+    expect(result.current.source).toBe('off')
+  })
+
+  it('holds the completed display in Auto and starts the next take without inheriting its reference', async () => {
+    const { result } = renderHook(() => usePractice(120, 'auto'))
+    await act(() => result.current.listen('auto'))
+    act(() => callbacks.onFrame({ ...info, time: 10.1, level: 0.8, onsets: [{ time: 10, strength: 0.8, confidence: 0.95 }], waveform: [{ time: 10, duration: 0.02, min: -0.8, max: 0.8 }] }))
+    act(() => frame(12))
+    const held = result.current.waveform
+    expect(held.review).toBe('partial')
+    expect(result.current.captureMode).toBe('auto')
+    act(() => frame(13))
+    expect(result.current.waveform).toEqual(held)
+    act(() => frame(14, [14]))
+    expect(result.current.snapshot).toMatchObject({ status: 'playing', phaseOrigin: 14, beat: 1 })
+    expect(result.current.waveform.review).toBeNull()
+    expect(stopCapture).not.toHaveBeenCalled()
+    await act(() => result.current.stop())
+    act(() => frame(20, [20]))
+    expect(result.current).toMatchObject({ source: 'off', captureMode: 'single' })
+  })
 
   it('updates and mutes output without resetting the beat, and keeps output failures separate from capture', async () => {
     const { result, rerender } = renderHook(({ enabled, thresholdMs }) => usePractice(120, 'auto', 50, { enabled, mode: 'always', thresholdMs }),
@@ -51,7 +137,7 @@ describe('live timing integration', () => {
   it('uses capture timestamps for drift, beat counting and exact silence timeout', async () => {
     vi.spyOn(performance, 'now').mockReturnValue(999_999)
     const { result } = renderHook(() => usePractice(120, 'auto'))
-    await act(() => result.current.listen())
+    await act(() => result.current.listen('auto'))
     expect(result.current.source).toBe('microphone')
     act(() => {
       for (let i = 0; i < 6; i += 1) frame(100 + i * 0.5, [100 + i * 0.5])
