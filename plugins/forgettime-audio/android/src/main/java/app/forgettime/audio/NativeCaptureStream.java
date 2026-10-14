@@ -10,6 +10,7 @@ public final class NativeCaptureStream {
         public final double[] samples;
         public final List<DrumOnsetDetector.Onset> onsets = new ArrayList<>();
         public final List<WaveformEnvelopeCapture.Point> waveform = new ArrayList<>();
+        public DrumOnsetDetector.Diagnostics diagnostics;
         public double time;
         public double level;
         Batch(long startFrame, int count) { this.startFrame = startFrame; this.samples = new double[count]; }
@@ -20,11 +21,13 @@ public final class NativeCaptureStream {
     private long frame;
     private long acknowledgedFrame;
 
-    public NativeCaptureStream(int sampleRate) {
+    public NativeCaptureStream(int sampleRate) { this(sampleRate, new DrumOnsetDetector.Settings()); }
+    public NativeCaptureStream(int sampleRate, DrumOnsetDetector.Settings settings) {
         this.sampleRate = sampleRate;
-        detector = new DrumOnsetDetector(sampleRate);
+        detector = new DrumOnsetDetector(sampleRate, settings);
         waveform = new WaveformEnvelopeCapture(sampleRate);
     }
+    public synchronized void configure(DrumOnsetDetector.Settings settings) { detector.configure(settings); }
     public synchronized Batch process(short[] input, int count) {
         if (count <= 0 || count > input.length || count > sampleRate / 50) {
             throw new IllegalArgumentException("Invalid microphone PCM batch.");
@@ -47,6 +50,7 @@ public final class NativeCaptureStream {
         }
         frame += count;
         batch.time = detector.getProcessedThrough();
+        batch.diagnostics = detector.drainDiagnostics();
         batch.level = Math.min(1, Math.sqrt(energy / count));
         return batch;
     }

@@ -87,7 +87,7 @@ describe.skipIf(!process.env.FORGETTIME_NATIVE_HOST_TESTS)('Android native PCM t
     expect(result.current.recordedTake).not.toBe(first)
     expect(result.current.recordedTake?.origin).toBeCloseTo(6.4, 2)
     expect(result.current.recordedTake?.onsets).toHaveLength(1)
-    await act(() => result.current.previousBar())
+    await act(() => result.current.reviewCurrentBar())
     expect(result.current).toMatchObject({ source: 'off', captureMode: 'single' })
     expect(bridge.stop).toHaveBeenCalledOnce()
   })
