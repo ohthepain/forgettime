@@ -8,6 +8,18 @@ public final class ForgettimeAudioPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "ForgettimeAudioPlugin"
     public let jsName = "ForgettimeAudio"
     public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "listSavedBars", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "beginBarSave", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "appendFileChunk", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "commitBarSave", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "abortFileTransfer", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "readSavedBar", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "pickAudioFiles", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "readFileChunk", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "releaseFiles", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "beginAudioDecode", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "finishAudioDecode", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "exportSavedBar", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "startReplay", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "readReplay", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopReplay", returnType: CAPPluginReturnPromise),
@@ -18,6 +30,7 @@ public final class ForgettimeAudioPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "setMetronome", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise)
     ]
+    let fileController = NativeFilesController()
     private var capture: AudioCaptureSession?
     private var replay: NativeReplayOutput?
     private var replayTerminal: [String: Any]?
