@@ -30,7 +30,7 @@ beforeEach(() => {
   mocks.available = true
   mocks.callbacks.clear()
   mocks.removed = []
-  mocks.start.mockReset().mockResolvedValue({ sampleRate: 48000, timestampQuality: 'sample-clock' })
+  mocks.start.mockReset().mockResolvedValue({ sessionId: 'ios-1', sampleRate: 48000, timestampQuality: 'sample-clock' })
   mocks.stop.mockReset().mockResolvedValue(undefined)
   mocks.acknowledgeFrame.mockReset().mockResolvedValue(undefined)
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
@@ -193,6 +193,28 @@ describe('browser capture recovery', () => {
 })
 
 describe('capture lifecycle and clock contract', () => {
+  it('waits for native session identity and discards queued prior-session audio without losing opening PCM', async () => {
+    let resolve!: (info: { sessionId: string; sampleRate: number; timestampQuality: string }) => void
+    mocks.start.mockImplementation(() => new Promise(done => { resolve = done }))
+    const onFrame = vi.fn()
+    const capture = createAudioCapture({ onFrame })
+    const starting = capture.start()
+    await vi.waitFor(() => expect(mocks.start).toHaveBeenCalledOnce())
+    const callback = mocks.callbacks.get('audioFrame')!
+    const frame = { sessionId: 'prior', time: 0, sampleRate: 48000, pcm: { startFrame: 0, samples: [0, 1.5, -1.25] },
+      onsets: [], level: 1, timestampQuality: 'sample-clock' }
+    callback(frame)
+    callback({ ...frame, sessionId: 'ios-1' })
+    expect(onFrame).not.toHaveBeenCalled()
+    resolve({ sessionId: 'ios-1', sampleRate: 48000, timestampQuality: 'sample-clock' })
+    await starting
+    expect(onFrame).toHaveBeenCalledOnce()
+    expect(onFrame.mock.calls[0][0].pcm.samples).toEqual(new Float32Array([0, 1.5, -1.25]))
+    callback({ ...frame, pcm: { startFrame: 3, samples: [0] } })
+    expect(onFrame).toHaveBeenCalledOnce()
+    await capture.stop()
+  })
+
   it('retains native source PCM on its sample clock without replacing original detections', async () => {
     const onFrame = vi.fn()
     const capture = createAudioCapture({ onFrame })
@@ -208,7 +230,7 @@ describe('capture lifecycle and clock contract', () => {
     await capture.stop()
   })
 
-  it.each(['missing PCM', 'gap', 'rate change', 'session change', 'invalid samples', 'oversized packet'])('stops native retention on %s without delivering fabricated audio', async problem => {
+  it.each(['missing PCM', 'gap', 'rate change', 'invalid samples', 'oversized packet'])('stops native retention on %s without delivering fabricated audio', async problem => {
     const onFrame = vi.fn()
     const onError = vi.fn()
     const capture = createAudioCapture({ onFrame, onError })
@@ -221,7 +243,6 @@ describe('capture lifecycle and clock contract', () => {
     if (problem === 'missing PCM') delete (next as { pcm?: unknown }).pcm
     if (problem === 'gap') next.pcm.startFrame = 8
     if (problem === 'rate change') next.sampleRate = 44100
-    if (problem === 'session change') next.sessionId = 'ios-2'
     if (problem === 'invalid samples') next.pcm.samples[0] = NaN
     if (problem === 'oversized packet') next.pcm.samples = Array(16385).fill(0)
     callback(next)
