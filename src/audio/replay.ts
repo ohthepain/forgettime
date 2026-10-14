@@ -1,3 +1,5 @@
+import { Capacitor } from '@capacitor/core'
+import { NativeBarReplay } from './native-replay'
 import { DEFAULT_DETECTOR_SETTINGS, MAX_DIAGNOSTIC_CANDIDATES, normalizeDetectorSettings, type DetectorCandidate, type DetectorSettings } from './detector-contract'
 import { DEFAULT_METRONOME, MetronomeCoach, type MetronomeOptions } from './metronome'
 import { OnsetDetector, type DetectedOnset } from './onset-detector'
@@ -21,7 +23,12 @@ export interface ReplayState {
   onsets: ReplayOnset[]
   results: ReplayResult[]
 }
+export interface BarReplay { start(): Promise<void>; stop(): Promise<void>; setMetronome(options: MetronomeOptions): void }
+export function createBarReplay(take: RecordedTake, index: number, onState: (state: ReplayState) => void, onError: (message: string) => void, settings: DetectorSettings): BarReplay {
+  return Capacitor.isNativePlatform() ? new NativeBarReplay(take, index, onState, onError, settings) : new BrowserBarReplay(take, index, onState, onError, settings)
+}
 let nextRun = 0
+export function allocateReplayRun() { return ++nextRun }
 
 /** Browser output and analysis read the same retained mono PCM, never the microphone. */
 export class BrowserBarReplay {
@@ -43,7 +50,7 @@ export class BrowserBarReplay {
   private onsets: ReplayOnset[] = []
   private results: ReplayResult[] = []
   private pendingPresentation: ResolvedHit[] = []
-  private readonly run = ++nextRun
+  private readonly run = allocateReplayRun()
   private readonly bar
   private readonly origin: number
 

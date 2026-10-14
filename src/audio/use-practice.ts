@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TimingEngine, type InterpretationMode } from './engine'
 import { createAudioCapture, type CaptureInfo } from './capture'
 import { Capacitor } from '@capacitor/core'
-import { BrowserBarReplay, type ReplayState } from './replay'
+import { createBarReplay, type BarReplay, type ReplayState } from './replay'
 import { DEFAULT_START_SENSITIVITY, startingStrength } from './start-sensitivity'
 import { BarWaveformBuffer, emptyWaveform } from './bar-waveform'
 import { simulationWaveform } from './simulation-waveform'
@@ -17,7 +17,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
   const [detectorSettings, setDetectorSettings] = useState<DetectorSettings>({ ...DEFAULT_DETECTOR_SETTINGS })
   const detectorOptions = useRef<DetectorSettings>({ ...DEFAULT_DETECTOR_SETTINGS })
   const [liveDiagnostics, setLiveDiagnostics] = useState<{ candidates: ReviewedCandidate[]; dropped: number; supported: boolean }>({ candidates: [], dropped: 0, supported: false })
-  const replay = useRef<BrowserBarReplay | null>(null)
+  const replay = useRef<BarReplay | null>(null)
   const [replayState, setReplayState] = useState<ReplayState | null>(null)
   const recorder = useRef(new TakeRecorder())
   const engine = useRef(new TimingEngine({ bpm, mode, startSensitivity }, hit => recorder.current.resolve(hit)))
@@ -305,9 +305,8 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
     setError(null)
     setReplayState(null)
     setReviewBarIndex(index)
-    if (Capacitor.isNativePlatform()) { setError('Recorded playback requires an updated native audio plugin.'); return }
     try {
-      const output = new BrowserBarReplay(recordedTake, index, state => {
+      const output = createBarReplay(recordedTake, index, state => {
         if (generation.current !== activeGeneration) return
         now.current = state.time
         setReplayState(state)
@@ -332,14 +331,14 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
   // Settings controls call this boundary to begin an equivalent fresh run.
   const restartReplay = useCallback(async () => { if (replay.current) await playBar() }, [playBar])
   const configureDetector = useCallback(async (patch: Partial<DetectorSettings>) => {
-    if (Capacitor.isNativePlatform()) return
+    if (Capacitor.isNativePlatform() && !captureInfo?.diagnosticsSupported && !replayState) return
     const next = normalizeDetectorSettings({ ...detectorOptions.current, ...patch })
     if (JSON.stringify(next) === JSON.stringify(detectorOptions.current)) return
     detectorOptions.current = next
     setDetectorSettings(next)
     capture.current?.setDetectorSettings?.(next)
     if (replay.current) await playBar()
-  }, [playBar])
+  }, [playBar, captureInfo, replayState])
   const resetDetector = useCallback(() => configureDetector(DEFAULT_DETECTOR_SETTINGS), [configureDetector])
   const reviewCurrentBar = useCallback(async () => { await stop() }, [stop])
   const selectBar = useCallback(async (index: number) => {
@@ -350,5 +349,5 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
   const previousBar = useCallback(() => selectBar(Math.max(0, reviewBarIndex - 1)), [selectBar, reviewBarIndex])
   const nextBar = useCallback(() => selectBar(Math.min(reviewBarCount - 1, reviewBarIndex + 1)), [selectBar, reviewBarCount, reviewBarIndex])
 
-  return { liveDiagnostics, detectorSettings, configureDetector, resetDetector, detectorSettingsSupported: !Capacitor.isNativePlatform(), playBar, restartReplay, replayState, recordedTake, reviewBar, reviewBarIndex, reviewBarCount, previousBar, nextBar, reviewCurrentBar, recordingNotice, snapshot, captureTime: now.current, waveform, waveformSource, source, captureMode, busy, error, captureInfo, captureNotice, outputNotice, metronomeActive, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
+  return { liveDiagnostics, detectorSettings, configureDetector, resetDetector, detectorSettingsSupported: !Capacitor.isNativePlatform() || Boolean(captureInfo?.diagnosticsSupported || replayState), playBar, restartReplay, replayState, recordedTake, reviewBar, reviewBarIndex, reviewBarCount, previousBar, nextBar, reviewCurrentBar, recordingNotice, snapshot, captureTime: now.current, waveform, waveformSource, source, captureMode, busy, error, captureInfo, captureNotice, outputNotice, metronomeActive, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
 }
