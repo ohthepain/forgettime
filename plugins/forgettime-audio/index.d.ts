@@ -29,6 +29,7 @@ export interface NativeAudioFrame {
   /** 2 ms min/max windows from the captured PCM, on the same sample clock. */
   waveform?: NativeWaveformEnvelope[];
   metronomeAvailable?: boolean;
+  analysis?: { implementation: string; version: string };
   diagnostics?: NativeDiagnostics;
   /** Capture generation; acknowledgements from older sessions are ignored. */
   sessionId?: string;
@@ -37,7 +38,7 @@ export interface NativeAudioFrame {
 }
 export interface NativeMetronomePlan { origin: number; bpm: number; fromBeat: number; untilTime: number }
 export interface ForgettimeAudioPlugin {
-  start(options?: { detectorSettings?: NativeDetectorSettings }): Promise<{ sessionId?: string; sampleRate: number; timestampQuality: 'hardware' | 'sample-clock'; diagnosticsSupported?: boolean }>;
+  start(options?: { detectorSettings?: NativeDetectorSettings }): Promise<{ sessionId?: string; sampleRate: number; timestampQuality: 'hardware' | 'sample-clock'; diagnosticsSupported?: boolean; analysis?: { implementation: string; version: string } }>;
   setDetectorSettings(options: { sessionId: string; detectorSettings: NativeDetectorSettings }): Promise<void>;
   startReplay(options: { sessionId: string; sampleRate: number; samples: number[]; detectorSettings: NativeDetectorSettings }): Promise<{ sessionId: string; sampleRate: number; frameCount: number; diagnosticsSupported: boolean }>;
   readReplay(options: { sessionId: string }): Promise<NativeReplayFrame>;

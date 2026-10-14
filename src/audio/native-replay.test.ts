@@ -19,7 +19,7 @@ beforeEach(() => {
   native.metronome.mockReset().mockResolvedValue(undefined)
   native.capture.mockReset()
   native.read.mockReset().mockImplementation(async ({ sessionId }) => ({ sessionId, sampleRate: 48000, status: 'playing',
-    audibleFrame: 36000, analyzedThroughFrame: 35840, clockQuality: 'hardware', onsets: [{ time: 0.50001, strength: 0.8, confidence: 0.95 }], diagnostics: { candidates: [], dropped: 0 } }))
+    audibleFrame: 36000, analyzedThroughFrame: 35968, clockQuality: 'hardware', onsets: [{ time: 0.50001, strength: 0.8, confidence: 0.95 }], diagnostics: { candidates: [], dropped: 0 } }))
 })
 afterEach(() => vi.unstubAllGlobals())
 it('presents native output time and original native detections against the fixed fractional reference', async () => {
