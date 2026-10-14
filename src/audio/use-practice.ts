@@ -13,6 +13,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
   const engine = useRef(new TimingEngine({ bpm, mode, startSensitivity }))
   const waveformBuffer = useRef(new BarWaveformBuffer())
   const [waveform, setWaveform] = useState(emptyWaveform)
+  const [waveformSource, setWaveformSource] = useState<'microphone' | 'simulation'>('microphone')
   const [snapshot, setSnapshot] = useState(() => engine.current.snapshot(0))
   const [source, setSource] = useState<Source>('off')
   const [busy, setBusy] = useState(false)
@@ -33,7 +34,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
   const [outputNotice, setOutputNotice] = useState<string | null>(null)
   const outputFailed = useRef(false)
 
-  const stop = useCallback(async () => {
+  const stop = useCallback(async (keepReview = true) => {
     generation.current++
     cancelAnimationFrame(animation.current)
     const previous = capture.current
@@ -43,7 +44,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
     setMetronomeActive(false)
     setOutputNotice(null)
     outputFailed.current = false
-    setWaveform(waveformBuffer.current.reset())
+    setWaveform(keepReview ? waveformBuffer.current.hold() : waveformBuffer.current.reset())
     setSource('off')
     setBusy(false)
     setLevel(0)
@@ -85,7 +86,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
   }, [bpm, mode, metronomeOptions.enabled, metronomeOptions.mode, metronomeOptions.thresholdMs])
 
   useEffect(() => {
-    const onVisibility = () => { if (document.hidden) void stop() }
+    const onVisibility = () => { if (document.hidden) void stop(false) }
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
       document.removeEventListener('visibilitychange', onVisibility)
@@ -96,7 +97,8 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
   }, [stop])
 
   const listen = useCallback(async () => {
-    await stop()
+    await stop(false)
+    setWaveformSource('microphone')
     const activeGeneration = ++generation.current
     setBusy(true)
     setError(null)
@@ -164,7 +166,8 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
   }, [stop, deviceId])
 
   const simulate = useCallback(async () => {
-    await stop()
+    await stop(false)
+    setWaveformSource('simulation')
     setError(null)
     setSource('simulation')
     now.current = 0
@@ -198,5 +201,5 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
     animation.current = requestAnimationFrame(tick)
   }, [bpm, stop])
 
-  return { snapshot, waveform, source, busy, error, captureInfo, captureNotice, outputNotice, metronomeActive, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
+  return { snapshot, captureTime: now.current, waveform, waveformSource, source, busy, error, captureInfo, captureNotice, outputNotice, metronomeActive, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
 }

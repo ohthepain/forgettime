@@ -12,8 +12,8 @@ vi.mock('./AccountDialog', () => ({ AccountDialog: () => null }))
 
 function practice(): ReturnType<typeof usePractice> {
   return {
-    snapshot: new TimingEngine({ bpm: 100 }).snapshot(0), source: 'off', busy: false,
-    waveform: emptyWaveform(),
+    snapshot: new TimingEngine({ bpm: 100 }).snapshot(0), captureTime: 0, source: 'off', busy: false,
+    waveform: emptyWaveform(), waveformSource: 'microphone',
     error: null, captureInfo: null, captureNotice: null, outputNotice: null, metronomeActive: false, level: 0,
     inputDevices: [], canSelectInput: false, deviceId: '', setDeviceId: vi.fn(),
     listen: vi.fn().mockResolvedValue(undefined), stop: vi.fn().mockResolvedValue(undefined), simulate: vi.fn().mockResolvedValue(undefined),

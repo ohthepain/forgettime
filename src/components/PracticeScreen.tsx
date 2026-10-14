@@ -6,6 +6,7 @@ import { usePresentedHits } from '../audio/use-presented-hits'
 import { AccountDialog } from './AccountDialog'
 import { SettingsDialog } from './SettingsDialog'
 import { BarWaveform } from './BarWaveform'
+import { BeatPendulum } from './BeatPendulum'
 import type { InterpretationMode } from '../audio/engine'
 import type { MetronomeMode } from '../audio/metronome'
 
@@ -54,7 +55,10 @@ export function PracticeScreen() {
       <div className="tempo-row">
         <div className="bpm-control"><input id="bpm" aria-label="Tempo in beats per minute" inputMode="numeric" type="number" min={30} max={300} step={1} value={tempoText} disabled={busy || source === 'simulation'} onChange={event => setTempoText(event.target.value)} onBlur={commitTempo} onKeyDown={event => { if (event.key === 'Enter') { commitTempo(); event.currentTarget.blur() } }} /><label htmlFor="bpm">BPM</label></div>
         <div className={`beat-counter ${showBeat ? 'is-visible' : ''}`} role="timer" aria-live="off" aria-hidden={!showBeat} aria-label={showBeat ? `Beat ${snapshot.beat} of 4` : undefined}>
-          <div className="beat-current"><span className="beat-number">{snapshot.beat ?? '—'}</span><span className="beat-caption">BEAT<br />OF 4</span></div>
+          <div className="beat-current"><span className="beat-number">
+            <BeatPendulum time={practice.captureTime} origin={snapshot.phaseOrigin} bpm={bpm} active={showBeat} />
+            <span className="beat-number-value">{snapshot.beat ?? 1}</span>
+          </span><span className="beat-caption">BEAT<br />OF 4</span></div>
           <div className="beat-dots" aria-hidden="true">{[1, 2, 3, 4].map(beat => <i key={beat} className={snapshot.beat === beat ? 'active' : ''} />)}</div>
         </div>
       </div>
@@ -67,7 +71,8 @@ export function PracticeScreen() {
       </div>
       <div className="meter-scale"><span>−100 ms</span><span>0</span><span>+100 ms</span></div>
       <div className="result-area"><p className={latest?.uncertain ? 'result uncertain' : 'result'}>{detail}</p><p className="result-note">{latest?.uncertain ? 'No timing score for this hit' : playing ? 'Reference stays fixed as you play' : 'Let your hands do the talking'}</p></div>
-      <BarWaveform waveform={practice.waveform} source={source} status={snapshot.status} />
+      <BarWaveform waveform={practice.waveform} source={source === 'off' && practice.waveform.review ? practice.waveformSource : source}
+        status={snapshot.status} startSensitivity={startSensitivity} />
       <div className="metronome-control">
         <div className="metronome-heading"><span className="small-label">METRONOME</span>
           <button className={`metronome-toggle ${practice.metronomeActive ? 'is-playing' : ''}`} aria-label="Metronome sound" aria-pressed={metronomeEnabled}

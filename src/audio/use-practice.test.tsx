@@ -70,7 +70,7 @@ describe('live timing integration', () => {
     expect(mocked.create).toHaveBeenCalledTimes(1)
   })
 
-  it('aligns the real envelope and immediate detected markers to the beat, wraps, and clears on stop', async () => {
+  it('aligns the real envelope and immediate detected markers to the beat, wraps, and retains a review on stop', async () => {
     vi.spyOn(performance, 'now').mockReturnValue(123456789)
     const { result } = renderHook(() => usePractice(120, 'auto'))
     await act(() => result.current.listen())
@@ -90,7 +90,11 @@ describe('live timing integration', () => {
     expect(result.current.waveform.hits.map(hit => hit.position)).toEqual([0.75])
     expect(result.current.waveform.progress).toBeCloseTo(0.01)
     await act(() => result.current.stop())
-    expect(result.current.waveform).toMatchObject({ min: [], hits: [], progress: null })
+    expect(result.current.waveform.review).toBe('partial')
+    expect(result.current.waveform.hits.map(hit => hit.position)).toEqual([0, 0.75])
+    expect(result.current.waveform.max[0]).toBe(0.8)
+    await act(() => result.current.listen())
+    expect(result.current.waveform).toMatchObject({ min: [], hits: [], progress: null, review: null })
   })
 
   it('resets the reference when settings change without reopening capture', async () => {

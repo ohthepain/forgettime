@@ -70,16 +70,80 @@ describe('one-bar circular waveform', () => {
     expect(buffer.reset()).toMatchObject({ min: [], max: [], hits: [], progress: null })
   })
 
-  it('finishes the silence timeout frame, freezes while paused, and handles a missing native waveform honestly', () => {
+  it('holds a short take through the silence timeout and handles a missing native waveform honestly', () => {
     const buffer = new BarWaveformBuffer()
     const playing = state()
     expect(buffer.addFrame(10.2, undefined, [hit(10)], playing).available).toBe(false)
     buffer.addFrame(11.9, [point(11.8, 0.2)], [], playing)
     const paused = { ...playing, status: 'paused' as const, phaseOrigin: null, beat: null }
     const final = buffer.addFrame(12.1, [point(12, 0, 0.1)], [], paused)
-    expect(final.progress).toBeCloseTo(0.05)
+    expect(final.progress).toBe(1)
+    expect(final.review).toBe('partial')
     expect(buffer.addFrame(15, [point(14.9, 0.7)], [], paused)).toBe(final)
-    expect(final.hits).toEqual([])
+    expect(final.hits.map(h => h.time)).toEqual([10])
+  })
+
+  it.each([60, 120, 240])('recovers a full played bar after the %i BPM silence timeout without mixing sweeps', bpm => {
+    const buffer = new BarWaveformBuffer()
+    const engine = new TimingEngine({ bpm })
+    const beat = 60 / bpm
+    const bar = beat * 4
+    engine.start(10)
+    const attacks = Array.from({ length: 10 }, (_, i) => hit(10 + i * beat, 0.2 + i * 0.05))
+    for (const attack of attacks) {
+      engine.addOnset(attack)
+      buffer.addFrame(attack.time + 0.01, [point(attack.time, attack.strength)], [attack], engine.snapshot(attack.time + 0.01))
+    }
+    const last = attacks.at(-1)!.time
+    const waiting = buffer.addFrame(last + bar - 0.01, [point(last + 0.01, 0, bar - 0.02)], [], engine.snapshot(last + bar - 0.01))
+    expect(waiting.review).toBeNull()
+    expect(engine.snapshot(last + bar - 0.01).status).toBe('playing')
+    const held = buffer.addFrame(last + bar, [point(last + bar - 0.01, 0, 0.01)], [], engine.snapshot(last + bar))
+    expect(held.review).toBe('complete')
+    expect(held.progress).toBe(1)
+    expect(held.hits.map(h => h.time)).toEqual(attacks.slice(4, 8).map(h => h.time))
+    expect(held.hits.map(h => h.position)).toEqual([0, 0.25, 0.5, 0.75])
+    attacks.slice(4, 8).forEach((attack, i) => expect(held.max[i * 128]).toBe(attack.strength))
+    expect(buffer.addFrame(last + bar * 3, [point(last + bar * 3 - 0.01, 0.7)], [], engine.snapshot(last + bar * 3))).toBe(held)
+    const restart = hit(last + bar * 3 + 0.1)
+    engine.addOnset(restart)
+    const fresh = buffer.addFrame(restart.time + 0.01, [point(restart.time, 0.8)], [restart], engine.snapshot(restart.time + 0.01))
+    expect(fresh.review).toBeNull()
+    expect(fresh.hits.map(h => h.time)).toEqual([restart.time])
+    expect(fresh.hits[0].position).toBe(0)
+  })
+
+  it('preserves a complete bar on explicit stop, with the boundary attack belonging to the next bar', () => {
+    const buffer = new BarWaveformBuffer()
+    const attacks = [hit(10), hit(10.5), hit(11), hit(11.5), hit(12)]
+    buffer.addFrame(12.01, attacks.map(h => point(h.time, h.strength)), attacks, { ...state(), lastHitTime: 12 })
+    const held = buffer.hold()
+    expect(held.review).toBe('complete')
+    expect(held.hits.map(h => h.time)).toEqual([10, 10.5, 11, 11.5])
+    expect(buffer.hold()).toBe(held)
+  })
+
+  it('keeps an unavailable waveform unavailable when held', () => {
+    const buffer = new BarWaveformBuffer()
+    buffer.addFrame(12.1, undefined, [hit(10), hit(11), hit(12)], { ...state(), lastHitTime: 12 })
+    expect(buffer.hold()).toMatchObject({ available: false, review: 'complete' })
+  })
+
+  it('does not let rejected restart candidates replace the played bar at timeout', () => {
+    const buffer = new BarWaveformBuffer()
+    const engine = new TimingEngine({ bpm: 120 })
+    engine.start(10)
+    for (let time = 10; time <= 14; time += 0.5) {
+      const onset = hit(time)
+      engine.addOnset(onset)
+      buffer.addFrame(time + 0.01, [point(time, 0.8)], [onset], engine.snapshot(time + 0.01))
+    }
+    const quiet = hit(16.01, 0.03)
+    engine.addOnset(quiet)
+    const paused = engine.snapshot(16.02)
+    expect(paused.status).toBe('paused')
+    const held = buffer.addFrame(16.02, [point(16.01, 0.03)], [quiet], paused)
+    expect(held.hits.map(h => h.time)).toEqual([12, 12.5, 13, 13.5])
   })
 
   it('keeps all detected attacks regardless of later scoring ambiguity, with the requested colour ordering', () => {

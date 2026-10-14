@@ -68,6 +68,8 @@
 .waveform-plot{display:block;width:100%;height:112px}
 .waveform-beat-guide{stroke:#8aa0a529;stroke-width:1}
 .waveform-zero{stroke:#8aa0a522;stroke-width:1}
+.waveform-start-level{stroke:#bda57d;stroke-width:1;stroke-dasharray:4 4;opacity:.6}
+.waveform-threshold-note{line-height:1.6;color:#ab9f8e}
 .waveform-trace{fill:none;stroke:#c0d1d6;stroke-width:1;stroke-linecap:round;opacity:.8}
 .waveform-previous{opacity:.38}
 .waveform-hit line{stroke-width:1.5;opacity:.9}
@@ -84,3 +86,23 @@
 .metronome-toggle.is-playing { color: #a0d6be; }
 .metronome-note { color: #8e999e; font-size: 11px; line-height: 1.55; margin: 8px 0 0; }
 .help-threshold-setting { border-top: 1px solid #2d363c; margin-top: 23px; padding-top: 22px; }
+
+.beat-counter { opacity: 1; transition: none; }
+.beat-number-value, .beat-caption, .beat-dots { opacity: 0; transition: opacity .2s; }
+.beat-counter.is-visible .beat-number-value, .beat-counter.is-visible .beat-caption, .beat-counter.is-visible .beat-dots { opacity: 1; }
+.beat-number { position: relative; isolation: isolate; }
+.beat-number-value { position: relative; z-index: 1; text-shadow: 0 1px 8px var(--card), 0 0 3px var(--card); }
+.beat-caption, .beat-dots { position: relative; z-index: 1; }
+.beat-pendulum { position: absolute; left: 50%; bottom: -8px; width: 120px; height: calc(100% + 30px); transform: translateX(-50%); overflow: visible; pointer-events: none; }
+.pendulum-arc, .pendulum-ticks { fill: none; stroke: #66827c; stroke-width: 1; opacity: .3; }
+.pendulum-centre { stroke: #7b9690; stroke-width: 1; stroke-dasharray: 2 4; opacity: .5; }
+.pendulum-base { stroke: #64837b; stroke-width: 2; stroke-linecap: round; opacity: .45; }
+.pendulum-rod { stroke: #91b8aa; stroke-width: 2.5; stroke-linecap: round; opacity: .6; }
+.pendulum-weight { fill: #769b8e; stroke: #b0cec1; stroke-width: 1; opacity: .65; }
+.pendulum-weight-detail { stroke: #d7e9de; stroke-width: 1; opacity: .55; }
+.pendulum-pivot { fill: #253832; stroke: #87a79b; stroke-width: 1; }
+.pendulum-pin { fill: #a3c6b6; }
+@media(prefers-reduced-motion:reduce) {
+  .pendulum-arm { transform: none; }
+  .beat-number-value, .beat-caption, .beat-dots { transition: none; }
+}
