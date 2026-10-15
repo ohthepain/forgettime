@@ -53,7 +53,7 @@ public final class DrumOnsetDetector {
     private int filled = 0;
     private double windowTime = 0, previousRms = 0, levelReference = 0;
     private double levelHoldUntil = Double.NEGATIVE_INFINITY;
-    private double lastOnsetTime = Double.NEGATIVE_INFINITY, recentPeak = 0;
+    private double lastOnsetTime = Double.NEGATIVE_INFINITY, recentPeak = 0, envelopeEnergy = 0;
     private double lastClearAttackTime = Double.NEGATIVE_INFINITY, preAttackBackground = 0;
     private boolean armed = true;
     private double processedThrough = 0;
@@ -94,17 +94,20 @@ public final class DrumOnsetDetector {
         if (rms >= levelReference * 0.7) levelHoldUntil = windowTime + 1;
         levelReference = Math.max(rms, levelReference);
         double floor = settings.minimumRms;
-        double minimumLevel = Math.max(floor, levelReference * 0.05);
+        double minimumLevel = Math.max(floor, Math.min(levelReference * 0.05, floor * 2));
         double rise = rms - previous;
         double ratio = rms / Math.max(previous, floor);
         double elapsed = windowTime - lastOnsetTime;
         double fullContrast = rms / Math.max(backgroundRms, floor);
         double baseline = windowTime - lastClearAttackTime < 0.09
             ? Math.min(backgroundRms, Math.max(shortRms, preAttackBackground)) : backgroundRms;
-        double contrast = rms / Math.max(baseline, floor);
-        if (rms < recentPeak * 0.7) armed = true;
+        double effectiveBaseline = fullContrast < settings.contrastRatio && ratio < 2.5 ? backgroundRms : baseline;
+        double contrast = rms / Math.max(effectiveBaseline, floor);
+        envelopeEnergy += (meanEnergy - envelopeEnergy) * (1 - Math.exp(-window.length / sampleRate / 0.01));
+        double envelopeRms = Math.sqrt(envelopeEnergy);
+        if (envelopeRms < recentPeak * 0.7) armed = true;
         previousRms = rms;
-        recentPeak = Math.max(rms, recentPeak * 0.99);
+        recentPeak = Math.max(envelopeRms, recentPeak * 0.99);
         List<String> reasons = new ArrayList<>();
         if (!backgroundReady) reasons.add("warming-up");
         if (elapsed < settings.minSeparationMs / 1000) reasons.add("separation");
@@ -122,7 +125,7 @@ public final class DrumOnsetDetector {
             measurements.put("rms", rms); measurements.put("minimumLevel", minimumLevel); measurements.put("levelReference", levelReference);
             measurements.put("rise", rise); measurements.put("minimumRise", 0.002); measurements.put("ratio", ratio); measurements.put("minimumRatio", 1.55);
             measurements.put("contrast", contrast); measurements.put("minimumContrast", settings.contrastRatio);
-            measurements.put("backgroundRms", backgroundRms); measurements.put("baselineRms", baseline);
+            measurements.put("backgroundRms", backgroundRms); measurements.put("baselineRms", effectiveBaseline);
             measurements.put("armed", armed); measurements.put("rearmRatio", 2.5);
             measurements.put("elapsedMs", Double.isFinite(elapsed) ? elapsed * 1000 : null);
             measurements.put("minimumSeparationMs", settings.minSeparationMs);
@@ -139,7 +142,7 @@ public final class DrumOnsetDetector {
             preAttackBackground = backgroundRms;
         }
         armed = false;
-        recentPeak = Math.max(recentPeak, rms);
+        recentPeak = envelopeRms;
         return new Onset(onsetTime, Math.min(1, peak),
             confidence);
     }

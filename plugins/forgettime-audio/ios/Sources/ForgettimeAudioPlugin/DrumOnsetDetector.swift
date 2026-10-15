@@ -27,6 +27,7 @@ final class DrumOnsetDetector {
     private var lastClearAttackTime = -Double.infinity
     private var preAttackBackground = 0.0
     private var recentPeak = 0.0
+    private var envelopeEnergy = 0.0
     private var armed = true
     private(set) var processedThrough = 0.0
     private var energyHistory = Array(repeating: 0.0, count: 12)
@@ -67,17 +68,20 @@ final class DrumOnsetDetector {
         if rms >= levelReference * 0.7 { levelHoldUntil = windowTime + 1 }
         levelReference = max(rms, levelReference)
         let floor = settings.minimumRms
-        let minimumLevel = max(floor, levelReference * 0.05)
+        let minimumLevel = max(floor, min(levelReference * 0.05, floor * 2))
         let rise = rms - previous
         let ratio = rms / max(previous, floor)
         let elapsed = windowTime - lastOnsetTime
         let fullContrast = rms / max(backgroundRms, floor)
         let baseline = windowTime - lastClearAttackTime < 0.09
             ? min(backgroundRms, max(shortRms, preAttackBackground)) : backgroundRms
-        let contrast = rms / max(baseline, floor)
-        if rms < recentPeak * 0.7 { armed = true }
+        let effectiveBaseline = fullContrast < settings.contrastRatio && ratio < 2.5 ? backgroundRms : baseline
+        let contrast = rms / max(effectiveBaseline, floor)
+        envelopeEnergy += (meanEnergy - envelopeEnergy) * (1 - exp(-Double(window.count) / sampleRate / 0.01))
+        let envelopeRms = sqrt(envelopeEnergy)
+        if envelopeRms < recentPeak * 0.7 { armed = true }
         previousRms = rms
-        recentPeak = max(rms, recentPeak * 0.99)
+        recentPeak = max(envelopeRms, recentPeak * 0.99)
         var reasons: [String] = []
         if !backgroundReady { reasons.append("warming-up") }
         if elapsed < settings.minSeparationMs / 1000 { reasons.append("separation") }
@@ -95,7 +99,7 @@ final class DrumOnsetDetector {
                 "rms": rms, "minimumLevel": minimumLevel, "levelReference": levelReference,
                 "rise": rise, "minimumRise": 0.002, "ratio": ratio, "minimumRatio": 1.55,
                 "contrast": contrast, "minimumContrast": settings.contrastRatio,
-                "backgroundRms": backgroundRms, "baselineRms": baseline, "armed": armed, "rearmRatio": 2.5,
+                "backgroundRms": backgroundRms, "baselineRms": effectiveBaseline, "armed": armed, "rearmRatio": 2.5,
                 "elapsedMs": elapsed.isFinite ? elapsed * 1000 : NSNull(), "minimumSeparationMs": settings.minSeparationMs
             ]
             let candidate: [String: Any] = ["version": 1, "id": nextCandidateId, "time": onsetTime,
@@ -111,7 +115,7 @@ final class DrumOnsetDetector {
             preAttackBackground = backgroundRms
         }
         armed = false
-        recentPeak = max(recentPeak, rms)
+        recentPeak = envelopeRms
         return Onset(time: onsetTime, strength: min(1, peak), confidence: confidence)
     }
 }

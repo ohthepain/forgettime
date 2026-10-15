@@ -42,6 +42,7 @@ export class OnsetDetector {
   private lastClearAttackTime = -Infinity;
   private preAttackBackground = 0;
   private recentPeak = 0;
+  private envelopeEnergy = 0;
   private armed = true;
   private analyzedThrough: number | null = null;
   // Compare attack energy with ~32 ms of preceding audio, not just a single
@@ -67,6 +68,7 @@ export class OnsetDetector {
     this.lastClearAttackTime = -Infinity;
     this.preAttackBackground = 0;
     this.recentPeak = 0;
+    this.envelopeEnergy = 0;
     this.armed = true;
     this.analyzedThrough = null;
     this.energyHistory.fill(0);
@@ -132,7 +134,9 @@ export class OnsetDetector {
     }
     this.levelReference = Math.max(rms, this.levelReference);
     const floor = this.settings.minimumRms;
-    const minimumLevel = Math.max(floor, this.levelReference * 0.05);
+    // Loud accents may raise the noise gate only modestly. Otherwise a kick's
+    // body masks subsequent, independently rising quiet hi-hat/ghost attacks.
+    const minimumLevel = Math.max(floor, Math.min(this.levelReference * 0.05, floor * 2));
     const rise = rms - previous;
     const ratio = rms / Math.max(previous, floor);
     const elapsed = this.windowTime - this.lastOnsetTime;
@@ -144,12 +148,21 @@ export class OnsetDetector {
     const fullContrast = rms / Math.max(backgroundRms, floor);
     const baseline = this.windowTime - this.lastClearAttackTime < 0.09
       ? Math.min(backgroundRms, Math.max(shortRms, this.preAttackBackground)) : backgroundRms;
-    const contrast = rms / Math.max(baseline, floor);
-    if (rms < this.recentPeak * 0.7) this.armed = true;
+    // The shorter history admits softer follow-ups only on a distinct rise;
+    // ordinary oscillation in a decaying kick must still pass the full history.
+    const effectiveBaseline = fullContrast < this.settings.contrastRatio && ratio < 2.5
+      ? backgroundRms : baseline;
+    const contrast = rms / Math.max(effectiveBaseline, floor);
+    // Smooth energy over 10 ms before rearming: a low-frequency half-cycle
+    // trough is not evidence that the evolving attack has ended.
+    this.envelopeEnergy += (meanEnergy - this.envelopeEnergy) * (1 - Math.exp(-this.window.length / this.sampleRate / 0.01));
+    const envelopeRms = Math.sqrt(this.envelopeEnergy);
+    if (envelopeRms < this.recentPeak * 0.7) this.armed = true;
     this.previousRms = rms;
-    this.recentPeak = Math.max(rms, this.recentPeak * 0.99);
+    this.recentPeak = Math.max(envelopeRms, this.recentPeak * 0.99);
     const reasons: DetectorRejectionReason[] = [];
     if (!backgroundReady) reasons.push('warming-up');
+
     if (elapsed < this.settings.minSeparationMs / 1000) reasons.push('separation');
     if (!this.armed && ratio < 2.5) reasons.push('rearming');
     if (rms < minimumLevel) reasons.push('level');
@@ -168,7 +181,7 @@ export class OnsetDetector {
         strength: Math.min(1, peak), confidence, accepted: !reasons.length, reasons, settings: { ...this.settings },
         measurements: { rms, minimumLevel, levelReference: this.levelReference, rise, minimumRise: 0.002,
           ratio, minimumRatio: 1.55, contrast, minimumContrast: this.settings.contrastRatio,
-          backgroundRms, baselineRms: baseline, armed: this.armed, rearmRatio: 2.5,
+          backgroundRms, baselineRms: effectiveBaseline, armed: this.armed, rearmRatio: 2.5,
           elapsedMs: Number.isFinite(elapsed) ? elapsed * 1000 : null, minimumSeparationMs: this.settings.minSeparationMs } };
       if (this.diagnostics.length < MAX_DIAGNOSTIC_CANDIDATES) this.diagnostics.push(candidate);
       else this.diagnosticsDropped++;
@@ -181,7 +194,9 @@ export class OnsetDetector {
       this.preAttackBackground = backgroundRms;
     }
     this.armed = false;
-    this.recentPeak = Math.max(this.recentPeak, rms);
+    // Track this attack's envelope rather than an older accent's peak; that
+    // would immediately rearm on the quiet beginning of a slow-building kick.
+    this.recentPeak = envelopeRms;
     return {
       time,
       strength: Math.min(1, peak),

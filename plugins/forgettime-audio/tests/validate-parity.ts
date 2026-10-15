@@ -1,6 +1,6 @@
-/** Host-side port check with synthesized PCM; this is NOT physical-device validation. */
+/** Host-side port check with synthetic PCM and supplied WAVs, not physical-device validation. */
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -8,6 +8,7 @@ import assert from 'node:assert/strict'
 import { OnsetDetector, type DetectedOnset } from '../../../src/audio/onset-detector'
 import { WaveformEnvelopeCapture, type WaveformEnvelope } from '../../../src/audio/waveform-envelope'
 import { accentFollowUpFixture, levelRecoveryFixture, roomNoiseAfterAccentFixture } from '../../../src/audio/fixtures/level-recovery'
+import { decodeWav } from '../../../scripts/lib/wav'
 
 const base = fileURLToPath(new URL('..', import.meta.url))
 const temporary = mkdtempSync(join(tmpdir(), 'forgettime-detector-parity-'))
@@ -89,6 +90,17 @@ try {
       }
     }
     compare('percussion', samples)
+    if (rate === 44100) {
+      // Real supplied render plus a deliberate startup lead-in. Native/shared
+      // parity here is offline behavior, not a physical microphone benchmark.
+      const recording = decodeWav(readFileSync(resolve(base, '../../test-data/audio/beat 1 simple 120.wav')))
+      assert.equal(recording.sampleRate, rate)
+      for (const lead of [4410, 4449]) {
+        const pcm = new Float32Array(lead + recording.samples.length)
+        pcm.set(recording.samples, lead)
+        compare(`recorded-kick-and-quiet-hat-${lead}`, pcm)
+      }
+    }
     const rumble = new Float32Array(samples.length)
     const mixed = new Float32Array(samples.length)
     for (let i = 0; i < rumble.length; i++) {

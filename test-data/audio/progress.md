@@ -99,3 +99,51 @@ User requested `kick snare hat 16ths 120 1 bar.wav`. Actual decoded duration is 
 ### Replacement render
 
 User replaced the WAV and requested a retry. Duration now 2 seconds. Production finds 9 candidates; startup-bypass experiment finds 10, at positions 1.1 (+1.315 ms), 1.2 (+2.324 ms), 1.3 (+2.313 ms), 2.1 (+0.590 ms), 2.3 (+2.313 ms), 3.1 (+1.837 ms), 3.3 (+2.313 ms), 4.1 (+0.590 ms), 4.3 (+2.313 ms), 4.4 (+2.324 ms). No close duplicate candidates. Grid assumes file-zero beat 1, consistent with prior renders. Exact expected pattern remains unconfirmed; do not call the six unoccupied sixteenth positions misses without confirmation. Ask whether extra sixteenths were intended only at 1.2 and 4.4 or throughout the bar. Metadata retains prior short-render hash; reports saved as replacement-baseline.json and replacement-probe.json in the same output folder. Production unchanged.
+
+## Round 6: beat 1 120
+
+Analyzed user-supplied `beat 1 120.wav` at 120 BPM, auto mode. Duration 2 seconds, stereo 44.1 kHz. Current detector source now includes configurable settings and rejection diagnostics from work outside this loop. Adapted the output-only probe to bypass only the current warming-up rejection; production source remains untouched.
+
+Baseline: four accepted onsets at 0.486984, 1.003651, 1.032971 and 1.491497 seconds. Startup-bypass experiment: six at 0.004059, 0.027188, 0.486984, 1.003651, 1.032971 and 1.491497 seconds. Against assumed file-zero 120 BPM grid: 1.1 +4.059 and +27.188 ms; 2.1 -13.016 ms; 3.1 +3.651 and +32.971 ms; 4.1 -8.503 ms. Close pairs are 23.129 and 29.320 ms apart, potentially retriggers or intentional attacks. Exact intended pattern and quantization are unknown; do not classify pairs as false positives or offsets as performance errors until clarified.
+
+Reports: `output/audio-validation/beat-1-120/`; checksum and format in fixture metadata. Start sensitivity excluded from onset assessment. Next: ask user to confirm intended attack positions and whether this render is quantized.
+
+### Confirmed failures
+
+User feedback: "there should only be one hit detected at 1.1. the kick reaches peak energy around 27ms in. but we detect 2. the same happens at 3.1. we have completely missed a loud kick at the 8th note after beat 2".
+
+Expected: one onset each at 1.1 and 3.1; kick at 2.3 (0.75 seconds). The late detections at 0.027188 and 1.032971 seconds are confirmed retriggers within the same kick, not separate intentional events.
+
+Diagnostics confirm attempted attacks at 0.750317 and 0.751882 seconds rejected solely for level. Their RMS values are 0.011550 and 0.021974 against the adaptive minimum of 0.029089 left by earlier high energy. Rise/contrast pass. This is detector-level masking, independent of Start sensitivity. At 3.1 the detector accepts a second rise 29.32 ms after the initial candidate; it rearms within the same evolving kick. Rejections saved in `output/audio-validation/beat-1-120/rejections.json`. No fix applied yet. Active failure case: suppress within-kick retriggers while retaining the independently confirmed 2.3 kick and quiet/faster distinct hits in prior fixtures.
+
+## Round 7: beat 1 simple 120 / dynamic range
+
+User requires wide dynamic range: loud kick/snare must not mask important quiet hat ghost notes. Prefer amplitude changes over raw level, with a very low minimum. Frequency-content changes explicitly deferred. User confirmed this fixture has closed hat each eighth, kick on beats 1/3 and snare on beats 2/4: eight combined expected attack positions. File-zero origin assumed consistent with earlier renders; grid events are not independently measured acoustic onset annotations.
+
+Original stereo 44.1 kHz WAV, 2 seconds. Production detects 4 candidates. Startup-bypass experiment detects 6: the four quarter-note groups, plus kick retriggers at 0.027370 and 1.032971 seconds. All four intervening hats (1.3, 2.3, 3.3, 4.3) are missed. Diagnostics confirm their initial rises pass rise/contrast but fail the adaptive minimum (~0.0293–0.0295 RMS).
+
+An additional output-only experiment removes the loud-history multiplier from minimumLevel, keeping the existing absolute floor and rise/contrast checks. It recovers all eight expected groups, but retains both kick retriggers (10 total candidates). Earliest candidates by expected position: 1.1 0.004036 (+4.036 ms); 1.3 0.251542 (+1.542); 2.1 0.484399 (-15.601); 2.3 0.750317 (+0.317); 3.1 1.000726 (+0.726); 3.3 1.250658 (+0.658); 4.1 1.491497 (-8.503); 4.3 1.750635 (+0.635). Negative offsets require waveform/intended-grid review; do not assume detector accuracy from recovered counts.
+
+Reports, diagnostics and experimental copies: `output/audio-validation/beat-1-simple-120/`. No production source changes or claim of a validated fix. Broader noise/ghost-note regression tests not run for this diagnostic experiment. Next: user review of recovered hats and ongoing kick retriggers before choosing the next refinement.
+
+## Retained fix: kick-body retriggers and quiet hats
+
+User requested fixing extra kicks while preserving quiet hats and showing every detection. Retained the following in TypeScript, Java and Swift: a 10 ms smoothed energy envelope for rearming; resetting envelope-peak tracking for each accepted attack; requiring a distinct 2.5× local rise when using the short-background exception without full-history contrast; capping the adaptive minimum at twice the selected minimum RMS. No spectral classifier, long hit blackout, or timestamp shift was added. Start sensitivity and the existing startup-history gate are unchanged.
+
+The first simple smoothing experiment removed the 27/33 ms extras, but varying sample alignment exposed another possible decay retrigger around 80 ms. The stricter short-background exception removes that failure while preserving existing 40 ms softer follow-ups and close-flam tests. Removing the adaptive floor entirely admitted previously rejected faint noise; capping its increase preserves those checks and recovers the supplied quiet hats.
+
+At file-zero startup, the retained detector finds seven groups (opening hit still suppressed). With the same explicitly experimental startup bypass used in earlier tables, every detection is: 1.1 0.004036 (+4.036 ms); 1.3 0.251542 (+1.542); 2.1 0.484399 (-15.601); 2.3 0.751882 (+1.882); 3.1 1.000726 (+0.726); 3.3 1.250658 (+0.658); 4.1 1.491497 (-8.503); 4.3 1.750635 (+0.635). Eight total, no extras. These are render-grid errors with file-zero origin, not independent acoustic-onset accuracy claims.
+
+Added real-WAV regression across ten lead-in/sample alignments; all eight groups survive with no extras. Full suite: 234 passed, 21 device/tooling-gated tests skipped. Typecheck and production build pass. Standalone Java/Swift detector and waveform parity pass at 44.1/48 kHz, including supplied WAV at 44.1 kHz. Native apps were not reinstalled/synced/built or tested on devices; only host detector parity was compiled. Earlier reviewed instrument loops retain their expected experimental counts; isolated kick now has four, without its extra detection. An additional unreviewed `kick snare hat 16ths dyn 120 1 bar.wav` appeared in the folder and is not an established benchmark.
+
+Reports and complete detections: `output/audio-validation/kick-fix/fixed-summary.json` and per-file reports beside it. Next: review these retained-fix results with user; startup acquisition and the negative backbeat grid offsets remain separate known concerns.
+
+## Round 8: quieter eighth-note hats
+
+User requested `beat 1 simple dyn 120.wav`, describing quieter hats on the eighth notes. WAV is stereo 44.1 kHz, 2 seconds. Assessed as the quieter variant of the preceding simple eight-attack pattern, with file-zero origin assumed.
+
+Retained detector finds five attacks; experimental startup bypass finds six: 1.1 0.001315 (+1.315 ms), 2.1 0.500590 (+0.590), 3.1 1.001837 (+1.837), 3.3 1.252313 (+2.313), 4.1 1.500590 (+0.590), 4.3 1.752313 (+2.313). No extra candidates. Hats at 1.3 (0.25 s) and 2.3 (0.75 s) are missed. These are different source audio/timings from the earlier simple render; retain separate results.
+
+The missed hats' candidate windows fail level, rise and contrast. At 0.252313 s RMS is 0.005177; at 0.752313 s it is 0.006407. Selected floor is 0.006 and adaptive minimum is 0.009849. The same floor is the denominator for rise/contrast comparisons, so simply removing the adaptive increase will not recover these attacks. Start sensitivity is not involved. No further detector change made during this requested analysis.
+
+Metadata/checksum saved beside source; reports and rejected candidates in `output/audio-validation/beat-1-simple-dyn-120/`. Next: review failed quiet-hat case and refine low-level change detection without restoring kick retriggers or noise false positives.
