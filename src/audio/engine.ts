@@ -56,8 +56,9 @@ export class TimingEngine {
   private resolved: ResolvedHit[] = [];
   private preferred: Subdivision = 'quarter';
   private nextId = 1;
+  private replay = false;
 
-  constructor(options: TimingOptions) {
+  constructor(options: TimingOptions, private readonly onResolved?: (hit: ResolvedHit) => void) {
     this.assertBpm(options.bpm);
     this.bpm = options.bpm;
     this.mode = options.mode ?? 'auto';
@@ -68,6 +69,16 @@ export class TimingEngine {
     this.assertTime(nowSeconds);
     this.clearPerformance();
     this.status = 'listening';
+  }
+
+  /** A recorded reference is established before detection; rests never end replay. */
+  startReplay(origin: number): void {
+    this.assertTime(origin);
+    this.clearPerformance();
+    this.replay = true;
+    this.phaseOrigin = origin;
+    this.lockConfidence = 1;
+    this.status = 'playing';
   }
 
   stop(): void {
@@ -145,6 +156,11 @@ export class TimingEngine {
     };
   }
 
+  /** Earliest captured-audio time at which the current take may finish. */
+  get silenceDeadline(): number | null {
+    return !this.replay && this.status === 'playing' && this.lastHit !== null ? this.lastHit + this.beatSeconds * 4 : null;
+  }
+
   private get beatSeconds(): number { return 60 / this.bpm; }
   private get candidates(): Candidate[] {
     return CANDIDATES.filter((candidate) => this.mode === 'auto' || (this.mode === 'straight' ? candidate.divisions !== 3 && candidate.divisions !== 6 : candidate.divisions === 1 || candidate.divisions === 3 || candidate.divisions === 6));
@@ -153,7 +169,7 @@ export class TimingEngine {
   private advance(now: number, resolve = true): void {
     if (this.status === 'idle' || this.lastHit === null) return;
     // Timeout is elapsed duration from the last accepted attack.
-    if (now - this.lastHit >= this.beatSeconds * 4 - 1e-9) {
+    if (!this.replay && now - this.lastHit >= this.beatSeconds * 4 - 1e-9) {
       if (this.pending.length) this.resolvePending(now);
       this.status = 'paused';
       this.phaseOrigin = null;
@@ -204,7 +220,7 @@ export class TimingEngine {
       const tooFar = Math.abs(errorMs) > Math.min(70, intervalMs * 0.38);
       const reason = hit.ambiguous ?? (ambiguousGrid ? 'Rhythmic subdivision is ambiguous' : tooFar ? 'Attack falls between plausible subdivisions' : undefined);
       const confidence = reason ? Math.min(hit.confidence, 0.45) : clamp(hit.confidence * (1 - Math.abs(errorMs) / intervalMs), 0, 1);
-      this.resolved.push({
+      const result: ResolvedHit = {
         id: hit.id, time: hit.time,
         errorMs: reason ? null : errorMs,
         confidence, subdivision: best.candidate.name,
@@ -212,7 +228,9 @@ export class TimingEngine {
         // Flams, weak attacks and competing rhythms never become coaching evidence.
         guidance: !hit.ambiguous && !ambiguousGrid
           ? { intendedTime: hit.time - errorMs / 1000, errorMs } : undefined,
-      });
+      };
+      this.resolved.push(result);
+      this.onResolved?.(result);
     });
     this.resolved = this.resolved.slice(-128);
     this.preferred = best.candidate.name;
@@ -252,6 +270,7 @@ export class TimingEngine {
   }
 
   private clearPerformance(): void {
+    this.replay = false;
     this.phaseOrigin = null;
     this.lockConfidence = 0;
     this.lastHit = null;

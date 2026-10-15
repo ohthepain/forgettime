@@ -6,12 +6,14 @@ A timing practice app for drummers, sharing the Logmaster platform stack. Keep s
 
 - Preserve the supplied Tempo Meter Design: charcoal rounded card, large BPM, subdued typography, green centre band, stationary early/late hit lines.
 - Hit timestamps come from captured audio frames. UI, JavaScript callback arrival and wall-clock timing are never hit measurements.
-- The first reliable transient above Start sensitivity establishes beat 1 immediately. Selected BPM and phase then stay fixed. Never track the player's drift to improve their score. Start sensitivity gates only starting/restarting; editing it must not reset an active reference or filter subsequent quieter hits.
-- In 4/4, pause only after four beats of elapsed silence measured from the last detected hit. Keep the beat clock alive during shorter pauses. Restart acquisition after a full-bar pause.
+- For live takes, the first reliable transient above Start sensitivity establishes beat 1 immediately. Selected BPM and phase then stay fixed. Never track the player's drift to improve their score. Start sensitivity gates only starting/restarting; editing it must not reset an active reference or filter subsequent quieter hits.
+- The microphone starts off. Explicit single-take capture releases it after four beats of elapsed silence from the last accepted hit; explicit Auto capture keeps listening for a fresh take. Shorter pauses preserve the clock. Review, replay and import stop capture and disable Auto.
+- Replay analyzes retained PCM against its saved/confirmed BPM and phase, bypassing live acquisition and silence stopping. Start playback, change bars or change detector settings to begin a fresh run; retain detector state across loop repetitions and preserve original results separately.
 - Every resolved scored hit gets an immutable line position and a one-second opacity animation. Presentation lifetime is separate from analysis time.
 - Sequence interpretation allows rests and fills. Ambiguous attacks do not receive an invented precise timing score.
 - Keep live audio and simulations visibly distinct. Synthetic tests and simulator builds are not evidence of physical-device or acoustic-kit accuracy.
-- Microphone audio stays on-device. Do not introduce recording, storage, upload or background capture without a requested feature and explicit product handling.
+- Keep the latest unsaved take in bounded memory and persist only explicitly saved bars as complete WAV/`.forget` pairs on-device. Export requires an explicit user action. No automatic uploads or background capture.
+- For recording, replay, detector comparisons or file handling, read docs/take-review.md and docs/bar-files.md; for validation claims, read docs/recorded-workflow-validation.md.
 
 ## Architecture
 

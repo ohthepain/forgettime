@@ -15,4 +15,7 @@ android {
 
 dependencies {
     implementation project(':capacitor-android')
+    implementation "androidx.core:core:${rootProject.ext.androidxCoreVersion}"
+    implementation "androidx.activity:activity:${rootProject.ext.androidxActivityVersion}"
+    implementation "androidx.appcompat:appcompat:${rootProject.ext.androidxAppCompatVersion}"
 }

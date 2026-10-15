@@ -1,18 +1,33 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { webcrypto } from 'node:crypto'
+import { importedMaterial } from '../audio/audio-import'
+import { createBarFiles, restoreBarFiles } from '../audio/bar-files'
 import { PracticeScreen } from './PracticeScreen'
 import { usePreferences } from '../lib/preferences'
 import { usePractice } from '../audio/use-practice'
 import { TimingEngine, type ResolvedHit } from '../audio/engine'
+import { DEFAULT_DETECTOR_SETTINGS } from '../audio/detector-contract'
+import { OnsetDetector } from '../audio/onset-detector'
+import { recordedBar, type RecordedTake } from '../audio/recorded-take'
 import { emptyWaveform } from '../audio/bar-waveform'
 
 vi.mock('../audio/use-practice', () => ({ usePractice: vi.fn() }))
 vi.mock('./AccountDialog', () => ({ AccountDialog: () => null }))
+afterEach(() => cleanup())
 
 function practice(): ReturnType<typeof usePractice> {
   return {
-    snapshot: new TimingEngine({ bpm: 100 }).snapshot(0), captureTime: 0, source: 'off', busy: false,
+    importState: null, importBusy: false, importError: null, importNotice: null, nativeImportPicker: false,
+    beginImport: vi.fn(), cancelImport: vi.fn(), importFiles: vi.fn(), chooseImportFiles: vi.fn(), useImportAudioOnly: vi.fn(), confirmImport: vi.fn(),
+    savedBars: [], savedBarsSupported: true, libraryBusy: false, libraryError: null, libraryNotice: null,
+    exportSavedPair: vi.fn(), pairedExportSupported: false, saveSelectedBar: vi.fn(), openSavedBar: vi.fn(), exportSavedFile: vi.fn(), openRecordedMaterial: vi.fn(),
+    detectorSettings: { ...DEFAULT_DETECTOR_SETTINGS }, configureDetector: vi.fn(), resetDetector: vi.fn(), detectorSettingsSupported: true, liveDiagnostics: { candidates: [], dropped: 0, supported: false },
+    playBar: vi.fn(), restartReplay: vi.fn(), replayState: null,
+    recordedTake: null, reviewBar: null, reviewBarIndex: 0, reviewBarCount: 0, recordingNotice: null,
+    previousBar: vi.fn(), nextBar: vi.fn(), reviewCurrentBar: vi.fn(),
+    snapshot: new TimingEngine({ bpm: 100 }).snapshot(0), captureTime: 0, source: 'off', captureMode: 'single', busy: false,
     waveform: emptyWaveform(), waveformSource: 'microphone',
     error: null, captureInfo: null, captureNotice: null, outputNotice: null, metronomeActive: false, level: 0,
     inputDevices: [], canSelectInput: false, deviceId: '', setDeviceId: vi.fn(),
@@ -29,6 +44,50 @@ describe('practice screen integration', () => {
     vi.mocked(usePractice).mockImplementation(() => state)
   })
   afterEach(() => cleanup())
+
+  it('routes picker and drop to the same import action and makes beat one keyboard accessible', () => {
+    const { rerender } = render(<PracticeScreen />)
+    const file = new File(['audio'], 'drums.wav', { type: 'audio/wav' })
+    fireEvent.click(screen.getByRole('button', { name: 'Import audio' }))
+    expect(state.beginImport).toHaveBeenCalledOnce()
+    fireEvent.change(screen.getByLabelText('Choose audio and optional .forget files'), { target: { files: [file] } })
+    expect(state.importFiles).toHaveBeenCalledWith([expect.objectContaining({ name: 'drums.wav', size: 5 })])
+    fireEvent.drop(screen.getByRole('region', { name: 'Import audio files' }), { dataTransfer: { files: [file] } })
+    expect(state.importFiles).toHaveBeenCalledTimes(2)
+    state = { ...state, importState: { kind: 'setup', file: { name: 'drums.wav', size: 5, read: async () => new ArrayBuffer(5) }, bpm: 110, explanation: 'Confirm reference', audio: { samples: new Float32Array(48000), sampleRate: 48000, channels: 1 } } }
+    rerender(<PracticeScreen />)
+    fireEvent.change(screen.getByLabelText('Beat one (seconds)'), { target: { value: '0.3' } })
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Beat one position' }), { key: 'ArrowRight' })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm tempo and beat one' }))
+    expect(state.confirmImport).toHaveBeenCalledWith(110, .3 + 1 / 48000)
+    expect((screen.getByRole('button', { name: 'Enable microphone' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('offers durable local save and separate WAV and metadata downloads', () => {
+    const take: RecordedTake = { source: 'saved', continuity: 0, origin: 0, settings: { bpm: 100, mode: 'auto', startSensitivity: 50 }, audio: { startFrame: 0, sampleRate: 8000, samples: new Float32Array(19200) }, onsets: [], results: [], endReason: 'stopped', barCount: 1 }
+    state = { ...state, recordedTake: take, reviewBar: recordedBar(take, 0), reviewBarCount: 1, savedBars: [{ id: 'saved-id', name: 'Bar 1', createdAt: 0, bpm: 100, complete: true, bytes: 100 }] }
+    render(<PracticeScreen />)
+    fireEvent.click(screen.getByRole('button', { name: 'Save bar on device' }))
+    expect(state.saveSelectedBar).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: 'Open Bar 1' }))
+    expect(state.openSavedBar).toHaveBeenCalledWith('saved-id')
+    fireEvent.click(screen.getByRole('button', { name: 'Download WAV for Bar 1' }))
+    expect(state.exportSavedFile).toHaveBeenCalledWith('saved-id', 'wav')
+    fireEvent.click(screen.getByRole('button', { name: 'Download .forget for Bar 1' }))
+    expect(state.exportSavedFile).toHaveBeenCalledWith('saved-id', 'forget')
+    expect(screen.getByText('Saved bar · 100 BPM · microphone is off')).toBeDefined()
+  })
+
+  it('restores visible tempo and interpretation for a reopened bar before replay starts', () => {
+    const take: RecordedTake = { source: 'saved', continuity: 0, origin: -.000003, settings: { bpm: 110, mode: 'swing', startSensitivity: 70 }, audio: { startFrame: 0, sampleRate: 8000, samples: new Float32Array(17455) }, onsets: [], results: [], endReason: 'stopped', barCount: 1 }
+    state = { ...state, recordedTake: take, reviewBar: recordedBar(take, 0), reviewBarCount: 1 }
+    render(<PracticeScreen />)
+    expect((screen.getByRole('spinbutton') as HTMLInputElement).value).toBe('110')
+    expect(screen.getByRole('button', { name: 'Swing / triplet' }).getAttribute('aria-pressed')).toBe('true')
+    expect(usePreferences.getState().startSensitivity).toBe(70)
+    expect(state.listen).not.toHaveBeenCalled()
+    expect(take.origin).toBe(-.000003)
+  })
 
   it('preserves the counter element and hides it before lock and after pause', () => {
     const { container, rerender } = render(<PracticeScreen />)
@@ -99,4 +158,70 @@ describe('practice screen integration', () => {
     fireEvent(line, new Event('AnimationEvent' in window ? 'animationend' : 'webkitAnimationEnd', { bubbles: true }))
     expect(container.querySelector('.hit-line')).toBeNull()
   })
+})
+
+it('offers waveform loop playback, identifies replay, and preserves original/current comparison', () => {
+  const take: RecordedTake = { audio: { samples: new Float32Array(96000), startFrame: 0, sampleRate: 48000 }, source: 'web', continuity: 0, origin: 0, settings: { bpm: 120, mode: 'straight', startSensitivity: 50 }, onsets: [], results: [], endReason: 'stopped' }
+  state = { ...practice(), recordedTake: take, reviewBar: recordedBar(take, 0), reviewBarCount: 1 }
+  vi.mocked(usePractice).mockImplementation(() => state)
+  const { rerender } = render(<PracticeScreen />)
+  fireEvent.click(screen.getByRole('button', { name: 'Loop recorded bar' }))
+  expect(state.playBar).toHaveBeenCalled()
+  state = { ...state, source: 'replay', snapshot: { ...state.snapshot, bpm: 120, status: 'playing', phaseOrigin: 0, beat: 1 }, replayState: { settings: { ...DEFAULT_DETECTOR_SETTINGS }, candidates: [], diagnosticsDropped: 0, metronomeActive: false, run: 1, iteration: 1, time: 2, progress: 0, snapshot: state.snapshot, onsets: [], results: [] } }
+  rerender(<PracticeScreen />)
+  expect(screen.getByText('BAR REPLAY')).toBeDefined()
+  expect(screen.getByText(/Fresh looping state can differ/)).toBeDefined()
+  expect(screen.getByRole('button', { name: 'Original capture' })).toBeDefined()
+  expect(screen.getByRole('button', { name: 'Current loop' })).toBeDefined()
+  expect((screen.getByRole('button', { name: 'Auto capture' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('spinbutton') as HTMLInputElement).disabled).toBe(true)
+  fireEvent.click(screen.getByRole('button', { name: 'Pause recorded bar' }))
+  expect(state.stop).toHaveBeenCalled()
+})
+
+it('reveals candidate decisions accessibly and commits detector controls separately from Start sensitivity', () => {
+  const detector = new OnsetDetector()
+  const pcm = new Float32Array(48000)
+  for (let i = 0; i < 128; i++) pcm[4800 + i] = (i % 2 ? -0.003 : 0.003)
+  detector.process(pcm, 0, 48000)
+  const diagnostics = detector.drainDiagnostics()
+  state = { ...practice(), liveDiagnostics: { ...diagnostics, supported: true } }
+  vi.mocked(usePractice).mockImplementation(() => state)
+  render(<PracticeScreen />)
+  expect(screen.queryByRole('group', { name: 'Detector controls' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Detection details' }))
+  expect(screen.getByText(/Start sensitivity only gates live acquisition/)).toBeDefined()
+  fireEvent.click(screen.getAllByRole('button', { name: /Inspect candidate/ })[0])
+  expect(screen.getByText('Detector rejected')).toBeDefined()
+  expect(screen.getByText(/level,.*contrast/)).toBeDefined()
+  const control = screen.getByRole('spinbutton', { name: 'Minimum level' })
+  fireEvent.change(control, { target: { value: '0.02' } })
+  fireEvent.blur(control)
+  expect(state.configureDetector).toHaveBeenCalledWith({ minimumRms: 0.02 })
+  fireEvent.click(screen.getByRole('button', { name: 'Reset detector defaults' }))
+  expect(state.resetDetector).toHaveBeenCalled()
+  expect(state.restartReplay).not.toHaveBeenCalled() // Visibility and candidate selection do not restart.
+})
+
+
+it('keeps unavailable original analysis distinct from zero detections after unpaired import and saved-bar restore', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  try {
+    const take = importedMaterial({ kind: 'setup', bpm: 120, file: { name: 'example.wav', size: 1, read: async () => new ArrayBuffer(0) }, audio: { samples: new Float32Array(96000), sampleRate: 48000, channels: 1 }, explanation: '' }, { bpm: 120, mode: 'straight', startSensitivity: 50 }, 0)
+    state = { ...practice(), recordedTake: take, reviewBar: recordedBar(take, 0), reviewBarCount: 1 }
+    vi.mocked(usePractice).mockImplementation(() => state)
+    const view = render(<PracticeScreen />)
+    expect(screen.getByText(/Original detections unavailable/)).toBeDefined()
+    expect(screen.queryByText(/0 original detected hits/)).toBeNull()
+    state = { ...state, replayState: { settings: { ...DEFAULT_DETECTOR_SETTINGS }, candidates: [], diagnosticsDropped: 0, metronomeActive: false, run: 1, iteration: 0, time: 0, progress: 0, snapshot: state.snapshot, onsets: [], results: [] } }
+    view.rerender(<PracticeScreen />)
+    const original = within(screen.getByRole('table', { name: 'Original and current timing comparison' })).getByRole('row', { name: /Original/ })
+    expect(original.textContent).toBe('OriginalUnavailableUnavailableUnavailable')
+    expect(screen.getByText('Original: analysis unavailable')).toBeDefined()
+    const restored = await restoreBarFiles(await createBarFiles(take, 0))
+    state = { ...state, recordedTake: restored, reviewBar: recordedBar(restored, 0), replayState: null }
+    view.rerender(<PracticeScreen />)
+    expect(screen.getByText(/Original detections unavailable/)).toBeDefined()
+    expect(screen.queryByText(/0 original detected hits/)).toBeNull()
+  } finally { vi.unstubAllGlobals() }
 })
