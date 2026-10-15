@@ -1,0 +1,16 @@
+{
+  "file": "hho 100 1 bar.wav",
+  "provenance": "User-supplied Ableton render; original bytes retained.",
+  "sha256": "d0eb29834c82cb62e7074ee8263e2f2aecd23daf77b12ecc806ece7764d941f5",
+  "sampleRate": 44100,
+  "channels": 2,
+  "durationSeconds": 1.95,
+  "bpm": 100,
+  "intendedPattern": "Four quantized quarter-note hits at 100 BPM; musical grid confirmed by user for this exercise. Precise acoustic onset times unannotated.",
+  "renderOffsetSeconds": null,
+  "velocity": null,
+  "effects": null,
+  "annotationStatus": "User-confirmed musical grid; no independent acoustic onset annotation.",
+  "baselineReport": "output/audio-validation/instrument-baselines/hho-baseline.json",
+  "experimentalReport": "output/audio-validation/instrument-baselines/hho-probe.json"
+}

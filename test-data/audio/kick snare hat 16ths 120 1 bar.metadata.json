@@ -1,0 +1,22 @@
+{
+  "file": "kick snare hat 16ths 120 1 bar.wav",
+  "provenance": "User-supplied Ableton render; original bytes retained.",
+  "sha256": "7031f2a74f0ddb8457332c02ee6f466607b8dfc68fe7c62e08099ef303afb91a",
+  "sampleRate": 44100,
+  "channels": 2,
+  "durationSeconds": 2,
+  "bpm": 120,
+  "intendedPattern": "Kick, snare and hi-hat sixteenth-note loop; exact instrument placements await confirmation.",
+  "renderOffsetSeconds": null,
+  "velocity": null,
+  "effects": null,
+  "annotationStatus": "No independently measured acoustic onsets. Grid origin zero provisional, consistent with preceding renders.",
+  "baselineReport": "output/audio-validation/kick-snare-hat-16ths-120/replacement-baseline.json",
+  "experimentalReport": "output/audio-validation/kick-snare-hat-16ths-120/replacement-probe.json",
+  "previousRevision": {
+    "sha256": "bf722578223ca546352e0098d746dfaa77703c74939feb0d1720ffeccc831031",
+    "durationSeconds": 0.12498866213151927,
+    "baselineReport": "output/audio-validation/kick-snare-hat-16ths-120/baseline.json",
+    "experimentalReport": "output/audio-validation/kick-snare-hat-16ths-120/startup-probe.json"
+  }
+}

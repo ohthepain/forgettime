@@ -1,0 +1,27 @@
+{
+  "file": "kick snare hat 120 1 bar.wav",
+  "provenance": "User-supplied Ableton render; original bytes retained.",
+  "sha256": "dfb857b8cf22a5659c3b47ae7d839ca535173d0579de64a0484e8855518861da",
+  "sampleRate": 44100,
+  "channels": 2,
+  "durationSeconds": 2,
+  "bpm": 120,
+  "intendedPattern": "User-confirmed: hi-hat on eighth notes; kick and snare on quarter notes, all quantized. Exact kick/snare allocation across beats not specified.",
+  "renderOffsetSeconds": 0,
+  "velocity": null,
+  "effects": null,
+  "annotationStatus": "Exploratory; no independent onset annotations.",
+  "baselineReport": "output/audio-validation/kick-snare-hat-120/baseline.json",
+  "experimentalReport": "output/audio-validation/kick-snare-hat-120/startup-probe.json",
+  "expectedGridSeconds": [
+    0,
+    0.25,
+    0.5,
+    0.75,
+    1,
+    1.25,
+    1.5,
+    1.75
+  ],
+  "gridProvenance": "User-confirmed musical placement, not independently measured acoustic onsets."
+}

@@ -28,6 +28,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
+      - name: Check committed migrations match the schema
+        run: test -z "$(git status --porcelain -- drizzle)"
+      - name: Validate auth on fresh and legacy schemas
+        run: |
+          node --import tsx scripts/validate-auth.ts
+          node --import tsx scripts/validate-auth.ts --legacy-schema
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build

@@ -1,5 +1,5 @@
 {
-  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts", "vitest.config.ts", "capacitor.config.ts", "prisma.config.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts", "vitest.config.ts", "capacitor.config.ts", "drizzle.config.ts"],
   "compilerOptions": {
     "target": "ES2022", "jsx": "react-jsx", "module": "ESNext",
     "baseUrl": ".", "paths": { "#/*": ["./src/*"] },

@@ -1,0 +1,29 @@
+{
+  "file": "kick 100 1 bar.wav",
+  "provenance": "User-supplied Ableton render, added directly to test-data/audio; original bytes retained.",
+  "sha256": "d29cc67c1d8faefdaf1879aadc6cb195e982f5ada3446cee141ba2e7b9313149",
+  "sampleRate": 44100,
+  "channels": 2,
+  "durationSeconds": 1.95,
+  "bpm": 100,
+  "sourceDescription": "User filename: kick 100 1 bar.wav",
+  "intendedPattern": "Four quantized quarter-note hits at 100 BPM; musical grid confirmed by user for this exercise. Precise acoustic onset times unannotated.",
+  "renderOffsetSeconds": 0,
+  "velocity": null,
+  "effects": null,
+  "annotationStatus": "User-confirmed musical grid; no independent acoustic onset annotation.",
+  "baselineReport": "output/audio-validation/instrument-baselines/kick-baseline.json",
+  "previousRevision": {
+    "sha256": "cce26a4c2ee54f242b987807fb569cf0703db55316e862972c94a20dd0e48ca0",
+    "description": "User corrected: previous sample was a stick sound, not a kick",
+    "baselineReport": "output/audio-validation/kick-100-1-bar/baseline.json",
+    "durationSeconds": 2.4
+  },
+  "intendedGridSeconds": [
+    0,
+    0.6,
+    1.2,
+    1.8
+  ],
+  "experimentalReport": "output/audio-validation/instrument-baselines/kick-probe.json"
+}

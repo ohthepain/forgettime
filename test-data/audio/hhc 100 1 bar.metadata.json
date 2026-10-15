@@ -1,0 +1,16 @@
+{
+  "file": "hhc 100 1 bar.wav",
+  "provenance": "User-supplied Ableton closed hi-hat render; original bytes retained.",
+  "sha256": "66187810d91f9cdbdf0f4ba4f8875f85c0097f7716b21b8379728f9bf842f305",
+  "sampleRate": 44100,
+  "channels": 2,
+  "durationSeconds": 1.95,
+  "bpm": 100,
+  "intendedPattern": "Four quantized quarter-note hits at 100 BPM; musical grid confirmed by user for this exercise. Precise acoustic onset times unannotated.",
+  "renderOffsetSeconds": null,
+  "velocity": null,
+  "effects": null,
+  "annotationStatus": "User-confirmed musical grid; no independent acoustic onset annotation.",
+  "baselineReport": "output/audio-validation/instrument-baselines/hhc-baseline.json",
+  "experimentalReport": "output/audio-validation/instrument-baselines/hhc-probe.json"
+}

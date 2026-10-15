@@ -1,0 +1,16 @@
+{
+  "file": "snare 100 1 bar.wav",
+  "provenance": "User-supplied Ableton render; original bytes retained.",
+  "sha256": "d43bfa2c947b525012298ffb82b11e1be4aea6bd16e7a84ecf469e6d3e7f152c",
+  "sampleRate": 44100,
+  "channels": 2,
+  "durationSeconds": 2.4,
+  "bpm": 100,
+  "intendedPattern": "Four quantized quarter-note hits at 100 BPM; musical grid confirmed by user for this exercise. Precise acoustic onset times unannotated.",
+  "renderOffsetSeconds": null,
+  "velocity": null,
+  "effects": null,
+  "annotationStatus": "User-confirmed musical grid; no independent acoustic onset annotation.",
+  "baselineReport": "output/audio-validation/instrument-baselines/snare-baseline.json",
+  "experimentalReport": "output/audio-validation/instrument-baselines/snare-probe.json"
+}

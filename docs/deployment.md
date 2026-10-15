@@ -1,6 +1,6 @@
 # Forgettime deployment
 
-The project follows the existing Logmaster deployment shape: Node 22, pnpm 9.15.4, TanStack Start with a Hono Node adapter on port 3000, Prisma/PostgreSQL, Better Auth, ARM64 ECS Fargate, ECR, and project-specific SSM SecureString parameters. The mobile UI is the same hosted web app inside Capacitor 8; native capture lives in the plugin.
+The project follows the existing Logmaster deployment shape: Node 22, pnpm 9.15.4, TanStack Start with a Hono Node adapter on port 3000, Drizzle/PostgreSQL, Better Auth, ARM64 ECS Fargate, ECR, and project-specific SSM SecureString parameters. The mobile UI is the same hosted web app inside Capacitor 8; native capture lives in the plugin.
 
 ## Ownership and inputs
 
@@ -46,13 +46,13 @@ The Forgettime backend key is `forgettime/app/terraform.tfstate`, with separate 
 
 The provisioning task uses the shared ops cluster and subnets. It creates a role/database only when absent, verifies database ownership, and then tests a connection using the tenant credentials. Existing passwords and data are preserved. PostgreSQL 18 requires the provisioning administrator to have SET membership in a newly created tenant role before assigning database ownership; the script grants only that membership when necessary. An owner or password mismatch fails for investigation. Do not replace this with the older shared-aws provision helper: the inspected version of that helper drops and recreates an existing tenant database. SQL uses [psql environment variables and conditional execution](https://www.postgresql.org/docs/18/app-psql.html), with `ON_ERROR_STOP` enabled.
 
-The app container runs `prisma migrate deploy` inside the VPC before listening. Schema migrations must be backward-compatible with the previously running app: ECS keeps the old healthy task while starting the new one. A migration failure prevents the new app from starting. The container includes the AWS RDS trust bundle and sets `NODE_EXTRA_CA_CERTS`; the database URL requires TLS. The separate PostgreSQL setup image uses `sslmode=require` (encrypted transport; no explicit custom RDS CA/hostname verification in that one-shot image).
+The app container runs `pnpm db:migrate:deploy` inside the VPC before listening. Schema migrations must be backward-compatible with the previously running app: ECS keeps the old healthy task while starting the new one. A migration failure prevents the new app from starting. The container includes the AWS RDS trust bundle and sets `NODE_EXTRA_CA_CERTS`; the database URL requires TLS. The separate PostgreSQL setup image uses `sslmode=require` (encrypted transport; no explicit custom RDS CA/hostname verification in that one-shot image).
 
 After initial activation, verify the ECS deployment/events, `/api/healthz`, registration/sign-in, email if enabled, and microphone permission from the final HTTPS origin. A healthy HTTP response alone does not validate auth/database access or audio accuracy.
 
 ## CI and releases
 
-`ci.yml` runs dependency installation, Prisma generation, typecheck, tests, production build, Terraform formatting/validation without a backend, and shell syntax checks. PR CI needs no AWS credentials.
+`ci.yml` runs dependency installation, Drizzle migration generation, typecheck, tests, production build, Terraform formatting/validation without a backend, and shell syntax checks. PR CI needs no AWS credentials.
 
 `android-build.yml` runs Capacitor sync and an Android debug build with Java 21. Its `https://ci.invalid` URL is explicitly a compile fixture; the downloadable APK is not a working hosted app and does not validate physical-device microphone behavior.
 
@@ -86,3 +86,9 @@ The persistent volume is isolated from other projects. PostgreSQL 18 mounts `/va
 ## Validation boundary
 
 `scripts/test-database-provisioning.sh` runs against a disposable PostgreSQL 18 Docker container with no published port or persistent volume. It checks fresh provisioning, a repeated run preserving a marker row, incorrect-password rejection, and incorrect-owner rejection. Terraform formatting and provider validation, shell syntax, and Compose parsing can also be checked locally without AWS. They do not verify live listener-priority availability, ACM/DNS ownership, IAM trust/permissions, the current shared state, Fargate image pulls, or a deployed RDS connection. No AWS apply, DNS change, OAuth registration, app-store upload, or deployment was performed while creating this scaffold.
+
+## Drizzle migration baseline
+
+The committed `drizzle/0000_initial_auth.sql` creates the four auth tables on fresh databases and adopts the unchanged tables created by the former Prisma migration. It preserves table/column names, timestamp precision, indexes and cascade behavior, and never drops tables or data. Existing `_prisma_migrations` records may remain unused; Drizzle keeps its own journal in `drizzle.__drizzle_migrations`. This baseline assumes the original Forgettime schema, not arbitrary schema drift. No manual reset is required for the previous empty database.
+
+For subsequent changes, edit `src/server/schema.ts`, run `pnpm db:generate`, review and commit the SQL plus metadata, then deploy. Builds consume the TypeScript schema directly and do not generate migrations. CI checks that migration generation leaves committed metadata unchanged and exercises auth on both a fresh PostgreSQL database and the previous schema.

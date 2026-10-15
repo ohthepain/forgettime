@@ -1,5 +1,6 @@
 /** Real auth integration against a disposable local PostgreSQL 18 container only. */
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -47,8 +48,13 @@ try {
   assert.match(port ?? '', /^\d+$/)
   process.env.DATABASE_URL = `postgresql://postgres:${databasePassword}@127.0.0.1:${port}/forgettime_auth_test`
   process.env.BETTER_AUTH_SECRET = randomBytes(32).toString('hex')
-  run('pnpm', ['exec', 'prisma', 'migrate', 'deploy'])
   pool = new Pool({ connectionString: process.env.DATABASE_URL })
+  if (process.argv.includes('--legacy-schema')) {
+    await pool.query(await readFile(new URL('./fixtures/legacy-auth.sql', import.meta.url), 'utf8'))
+    console.log('Validating adoption of the previous empty auth schema.')
+  }
+  run('pnpm', ['db:migrate:deploy'])
+  run('pnpm', ['db:migrate:deploy']) // Applying committed migrations again must be harmless.
   assert.deepEqual(await (await request('/api/auth-config')).json(), { configured: true, google: false, email: false })
 
   const credentials = { name: 'Local validation drummer', email: 'drummer@example.invalid', password: 'Isolated-test-password-92!' }
@@ -86,10 +92,10 @@ try {
   console.log('PASS: incorrect password rejected, valid signin/session, no internal credentials in session, signout and health.')
 } finally {
   await pool?.end()
-  // Prisma is initialized only for this throwaway database, then disconnected before removal.
+  // Close the app pool before removing the throwaway database.
   if (container) {
-    const { getDatabase } = await import('../src/server/db')
-    try { await getDatabase().$disconnect() } catch { /* The migration may have failed before initialization. */ }
+    const { closeDatabase } = await import('../src/server/db')
+    try { await closeDatabase() } catch { /* The migration may have failed before initialization. */ }
     run('docker', ['rm', '-f', container])
   }
   for (const key of Object.keys(process.env)) if (!(key in originalEnvironment)) delete process.env[key]

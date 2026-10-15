@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { betterAuth } from 'better-auth'
-import { prismaAdapter } from '@better-auth/prisma-adapter'
+import { drizzleAdapter } from '@better-auth/drizzle-adapter'
+import * as schema from './schema'
 import { magicLink } from 'better-auth/plugins'
 import { getDatabase } from './db'
 import { sendAuthEmail } from './email'
@@ -29,7 +30,7 @@ function createAuth() {
     appName: 'Forgettime',
     baseURL,
     secret: process.env.BETTER_AUTH_SECRET || randomBytes(32).toString('hex'),
-    database: prismaAdapter(getDatabase(), { provider: 'postgresql' }),
+    database: drizzleAdapter(getDatabase(), { provider: 'pg', schema }),
     trustedOrigins: [baseURL, ...(!production ? ['http://localhost:3030', 'http://127.0.0.1:3030'] : []),
       ...(process.env.TRUSTED_ORIGINS ?? '').split(',').map(x => x.trim()).filter(Boolean)],
     emailAndPassword: {

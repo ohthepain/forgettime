@@ -6,12 +6,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-cert
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 COPY package.json pnpm-lock.yaml ./
 COPY plugins ./plugins
-COPY prisma ./prisma
-COPY prisma.config.ts ./
 ENV DATABASE_URL=postgresql://build:build@localhost:5432/build
 RUN pnpm install --frozen-lockfile
 COPY . .
-RUN pnpm db:generate && pnpm build
+RUN pnpm build
 
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app

@@ -4,13 +4,22 @@ A microphone timing meter for drummers. Choose a tempo, enable the microphone, a
 
 The charcoal card, large tempo, muted typography, rounded meter, and green centre band follow the supplied **Tempo Meter Design** screenshot. Auto, Straight, and Swing/triplet interpret short hit sequences. Ambiguous attacks get no precise score. The separate **Simulation** uses generated timestamps and does not access the microphone.
 
+## Commits
+
+Before a commit you should run:
+```sh
+git diff --check
+pnpm typecheck
+pnpm test
+pnpm build
+```
+
 ## Run locally
 
 Node 22.12+ and pnpm 9.15.4 are required.
 
 ```sh
 pnpm install
-pnpm db:generate
 pnpm dev
 ```
 
@@ -32,18 +41,20 @@ pnpm db:migrate:deploy
 pnpm dev
 ```
 
+Schema changes go in `src/server/schema.ts`; run `pnpm db:generate` and commit the SQL and metadata in `drizzle/`, then apply with `pnpm db:migrate`. Generation requires no database connection.
+
 The local PostgreSQL database uses port 5434. Do not point local migrations at another project's database. Email/password accounts use Better Auth. Web Google OAuth, email verification, magic links and password reset are enabled when their own Google/SES settings are provided; email links are never printed to server logs. Do not copy Logmaster credentials. In-process auth rate limits are per application instance. Native Google sign-in is hidden until a native ID-token flow and Forgettime-specific OAuth clients are configured; email/password sign-in works in the native shell.
 
 ## Stack and structure
 
-Versions follow the installed Logmaster stack and are pinned in the lockfile. Sailing, map, location and background-tracking features are excluded.
+Versions are pinned in the lockfile. The shared platform follows Logmaster; database access uses Drizzle ORM. Sailing, map, location and background-tracking features are excluded.
 
 | Area | Implementation |
 | --- | --- |
 | Shared UI | React 19, TypeScript, TanStack Start/Router, Vite, Tailwind 4 |
 | State | Zustand, locally persisted tempo and interpretation preference |
 | Server | Hono API via TanStack server routes; Hono Node production server |
-| Authentication | Better Auth, Prisma 7, PostgreSQL; optional Google and SES |
+| Authentication | Better Auth, Drizzle ORM, PostgreSQL; optional Google and SES |
 | Native shells | Capacitor 8, Android and iOS projects |
 | Audio | Local Capacitor plugin: AudioRecord / AVAudioEngine; browser AudioWorklet |
 | Timing | Sample-clock onset detector and fixed-reference short-sequence matcher |
@@ -74,12 +85,13 @@ pnpm test
 pnpm build
 pnpm cap:sync
 node --import tsx scripts/validate-auth.ts # isolated Docker PostgreSQL test
+node --import tsx scripts/validate-auth.ts --legacy-schema # adoption of previous empty tables
 node --import tsx plugins/forgettime-audio/tests/validate-parity.ts
 terraform -chdir=terraform init -backend=false
 terraform -chdir=terraform validate
 ```
 
-Run `pnpm build` once before standalone typechecking a clean checkout to generate the TanStack route tree (the generated route tree is also included in source control). Prisma client generation is required after installing dependencies.
+Run `pnpm build` once before standalone typechecking a clean checkout to generate the TanStack route tree (the generated route tree is also included in source control). Drizzle uses the TypeScript schema directly; no client generation is needed.
 
 See [audio validation](docs/audio-validation.md) for the annotated-WAV runner, full-bar timeout evidence and remaining acoustic-kit tests; [native audio](docs/native-audio.md) for capture clocks and platform limits; and [deployment](docs/deployment.md) for shared AWS onboarding and release workflows.
 

@@ -100,3 +100,10 @@ Browser clients need a reload and new listening session. Installed native apps n
 - Isolated Chromium with generated input and mocked device-delay reports verified a 249.98 ms advance relative to the captured opening transient, three First bar clicks with exact 24,000-sample spacing at 48 kHz/120 BPM, and Need help activation/recovery. Its generated output was inspected through a test audio monitor, not sent to physical speakers. Logs: ignored `output/latency-validation/browser-audio.log`.
 - Production bundles passed with `pnpm exec vite build --configLoader runner`. Java/Swift detector and waveform parity passed at 44.1/48 kHz. No native plugin source changes in this correction; native device testing is still outstanding.
 - User's particular microphone/output route has not been established and no physical route calibration was performed. Browser delay reports may be incomplete (especially remote microphones or Bluetooth). This fixes the missing compensation, not proof that every device is now calibrated. The upper meter's 240 ms rhythmic-interpretation presentation delay remains distinct from waveform marker placement.
+
+## Drizzle database migration (2026-10-15)
+
+- Replaced the application Prisma client/schema/tooling with Drizzle ORM and its Better Auth adapter. The initial SQL baseline supports fresh databases and the unchanged previous auth schema without dropping tables.
+- `pnpm db:generate` reports no schema changes against committed migration metadata; `pnpm typecheck`, all 139 Vitest tests, and the normal `pnpm build` passed.
+- Disposable Docker PostgreSQL 18 integration passed on both a fresh database and the previous empty auth schema. Both applied migrations twice, then verified signup, hashed password persistence, session cookies/lookup, invalid-password rejection, valid signin, logout invalidation and health. These paths now run in CI.
+- No live database migration, AWS deployment or native/store release was performed. The Docker application image itself was not built in this check.

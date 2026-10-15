@@ -15,7 +15,7 @@ A timing practice app for drummers, sharing the Logmaster platform stack. Keep s
 
 ## Architecture
 
-- TanStack Start/React shared UI, Hono API, Better Auth, Prisma/PostgreSQL, Zustand and Capacitor.
+- TanStack Start/React shared UI, Hono API, Better Auth, Drizzle/PostgreSQL, Zustand and Capacitor.
 - `shared-aws` owns shared VPC/ALB/listener/RDS. Forgettime consumes outputs and owns only its application resources. Never import shared resources into this Terraform state.
 - Keep a separate database, role, migration history and application secrets per Forgettime environment. Never copy Logmaster credentials.
 - Native plugin is a local `file:` dependency. Reinstall and sync after native changes before claiming the latest plugin compiled.
@@ -24,3 +24,17 @@ A timing practice app for drummers, sharing the Logmaster platform stack. Keep s
 ## Verification
 
 Use `pnpm db:generate`, `pnpm typecheck`, `pnpm test`, `pnpm build` as appropriate. For audio changes include detector parity and relevant sample-clock/silence tests. For infrastructure changes use Terraform validation and the non-destructive provisioning test. Live AWS operations and store releases are separate actions from building the project.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs are tracked in GitHub Issues for `ohthepain/forgettime`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the default triage roles: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout: root `GLOSSARY.md` and `docs/adr/`. See `docs/agents/domain.md`.
