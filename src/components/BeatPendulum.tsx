@@ -8,8 +8,8 @@ export function BeatPendulum({ time, origin, bpm, active }: {
   const beats = origin === null ? 0 : Math.max(0, (time - origin) * bpm / 60)
   const locked = active && origin !== null
   // Rest upright until playing. Once locked, the captured clock controls
-  // the angle, with maximum speed through the centre.
-  const angle = locked ? -28 * Math.cos(Math.PI * (beats % 2)) : 0
+  // the angle, crossing the centre on each beat.
+  const angle = locked ? -28 * Math.sin(Math.PI * (beats % 2)) : 0
 
   return <svg className="beat-pendulum" viewBox="0 0 120 120" aria-hidden="true" focusable="false">
     <path className="pendulum-arc" d="M17 25 A92 92 0 0 1 103 25" />
