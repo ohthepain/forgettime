@@ -1,6 +1,7 @@
+import { RecordControl } from './RecordControl'
 import { AudioImportControls } from './AudioImportControls'
 import { useEffect, useState } from 'react'
-import { AudioLines, CircleHelp, Mic, Settings, Square, UserRound, Volume2, VolumeX } from 'lucide-react'
+import { AudioLines, CircleHelp, Settings, UserRound, Volume2, VolumeX } from 'lucide-react'
 import { usePreferences } from '../lib/preferences'
 import { usePractice } from '../audio/use-practice'
 import { usePresentedHits } from '../audio/use-presented-hits'
@@ -88,7 +89,10 @@ export function PracticeScreen() {
       <div className="header-actions"><button className="icon-button" onClick={() => setHelpOpen(!helpOpen)} aria-label="How it works" aria-expanded={helpOpen}><CircleHelp size={19} /></button><button className="icon-button" onClick={() => setAccountOpen(true)} aria-label="Your account"><UserRound size={19} /></button><button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label="Settings" aria-haspopup="dialog" aria-expanded={settingsOpen}><Settings size={19} /></button></div>
     </header>
     <section className="tempo-card" aria-label="Drum timing practice">
-      <div className="card-heading"><h1>Tempo</h1><span className={source === 'simulation' ? 'practice-label demo-label' : 'practice-label'}>{source === 'simulation' ? 'SIMULATION' : source === 'replay' ? 'BAR REPLAY' : review && source === 'off' ? 'BAR REVIEW' : 'MIC PRACTICE'}</span></div>
+      <div className="card-heading"><h1>Tempo</h1><div className="card-recording">{(source === 'simulation' || source === 'replay' || (review && source === 'off')) && <span className="practice-label">{source === 'simulation' ? 'SIMULATION' : source === 'replay' ? 'BAR REPLAY' : 'BAR REVIEW'}</span>}
+        <RecordControl active={running} auto={practice.captureMode === 'auto'} busy={busy} disabled={importPending}
+          stopLabel={busy ? 'Cancel microphone' : source === 'simulation' ? 'Stop simulation' : source === 'replay' ? 'Pause playback' : 'Stop listening'} listen={practice.listen} stop={practice.stop} />
+      </div></div>
       <div className="tempo-row">
         <div className="bpm-control"><input id="bpm" aria-label="Tempo in beats per minute" inputMode="numeric" type="number" min={30} max={300} step={1} value={source === 'replay' ? snapshot.bpm : tempoText} disabled={busy || source === 'simulation' || source === 'replay'} onChange={event => setTempoText(event.target.value)} onBlur={commitTempo} onKeyDown={event => { if (event.key === 'Enter') { commitTempo(); event.currentTarget.blur() } }} /><label htmlFor="bpm">BPM</label></div>
         <div className={`beat-counter ${showBeat ? 'is-visible' : ''}`} role="timer" aria-live="off" aria-hidden={!showBeat} aria-label={showBeat ? `Beat ${snapshot.beat} of 4` : undefined}>
@@ -161,13 +165,6 @@ export function PracticeScreen() {
         {practice.inputDevices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}
         {practice.deviceId && !practice.inputDevices.some(device => device.deviceId === practice.deviceId) && <option value={practice.deviceId}>Selected microphone (unavailable)</option>}
       </select>{running && <span className="microphone-hint">Stop listening to change input</span>}</div>}
-      <div className="capture-controls" role="group" aria-label="Microphone capture">
-        {running || busy ? <button className="primary-button stop-button" onClick={() => void practice.stop()}><Square size={15} fill="currentColor" />{busy ? 'Cancel microphone' : source === 'simulation' ? 'Stop simulation' : source === 'replay' ? 'Pause playback' : 'Stop listening'}</button>
-          : <button className="primary-button" disabled={importPending} onClick={() => void practice.listen()}><Mic size={18} />Enable microphone</button>}
-        <button className="capture-auto" aria-label="Auto capture" aria-pressed={practice.captureMode === 'auto'}
-          aria-describedby="capture-mode-note" disabled={busy || importPending || (running && practice.captureMode !== 'auto')}
-          onClick={() => void (practice.captureMode === 'auto' ? practice.stop() : practice.listen('auto'))}>Auto</button>
-      </div>
       <p id="capture-mode-note" className="capture-mode-note">{practice.captureMode === 'auto' ? 'Auto · keeps listening between takes' : 'Single take · microphone stops after a full bar of silence'}</p>
       {practice.recordingNotice && <p className="capture-notice" role="status">{practice.recordingNotice}</p>}
       {error && <p className="error-message" role="alert">{error}</p>}
@@ -180,7 +177,7 @@ export function PracticeScreen() {
       {source === 'simulation' && <p className="source-note demo-label">Generated hits · microphone is off</p>}
     </section>
     <footer className="app-footer"><span>Listen to your own time.</span>{!running && <button onClick={() => void practice.simulate()} disabled={busy || importPending}>Try a simulation <span aria-hidden="true">↗</span></button>}</footer>
-    {helpOpen && <section className="help-panel"><h2>Make room for the groove.</h2><p>Choose a tempo, enable the microphone, then play. Your first strong hit sets beat 1 immediately. The clock stays fixed, so drifting ahead or behind remains visible.</p><p>Auto considers straight and triplet rhythms across a short sequence. Straight uses eighths and sixteenths; Swing / triplet uses triplet subdivisions. Fills need a little interpretation time. Ambiguous attacks get no precise score.</p><p>Play the starting hit on your intended downbeat. The counter continues through gaps shorter than a full bar. After a full bar without a hit, a single take ends and the microphone stops. Choose Auto beside the microphone button to keep listening and start a fresh take with your next strong hit. Stop ends either mode. Use Start sensitivity in Settings to choose how firmly you need to play to begin; it does not change detection during the performance.</p><p>Audio stays on your device. The latest take is held in memory for bar review, up to two minutes; a new take replaces it and closing the app discards it unless you choose Save bar on device. Saved bars remain in local app storage. Export both the WAV and .forget files for a portable copy before clearing app or browser storage. Quiet hits under cymbals may be missed. Device timing accuracy still needs real-world calibration. Changing tempo or interpretation starts a fresh reference.</p></section>}
+    {helpOpen && <section className="help-panel"><h2>Make room for the groove.</h2><p>Choose a tempo, enable the microphone, then play. Your first strong hit sets beat 1 immediately. The clock stays fixed, so drifting ahead or behind remains visible.</p><p>Auto considers straight and triplet rhythms across a short sequence. Straight uses eighths and sixteenths; Swing / triplet uses triplet subdivisions. Fills need a little interpretation time. Ambiguous attacks get no precise score.</p><p>Play the starting hit on your intended downbeat. The counter continues through gaps shorter than a full bar. After a full bar without a hit, a single take ends and the microphone stops. Hold the record button for Auto to keep listening and start a fresh take with your next strong hit. Stop ends either mode. Use Start sensitivity in the dropdown beside Record to choose how firmly you need to play to begin; it does not change detection during the performance.</p><p>Audio stays on your device. The latest take is held in memory for bar review, up to two minutes; a new take replaces it and closing the app discards it unless you choose Save bar on device. Saved bars remain in local app storage. Export both the WAV and .forget files for a portable copy before clearing app or browser storage. Quiet hits under cymbals may be missed. Device timing accuracy still needs real-world calibration. Changing tempo or interpretation starts a fresh reference.</p></section>}
     {accountOpen && <AccountDialog onClose={() => setAccountOpen(false)} />}
     {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
   </main>

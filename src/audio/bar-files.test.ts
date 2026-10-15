@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest'
+import { expect, it } from 'vite-plus/test'
 import { createBarFiles, restoreBarFiles, audioDigest } from './bar-files'
 import { recordedBar, type RecordedTake } from './recorded-take'
 import { DEFAULT_DETECTOR_SETTINGS } from './detector-contract'

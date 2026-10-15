@@ -1,4 +1,4 @@
-export const DEFAULT_START_SENSITIVITY = 50
+export const DEFAULT_START_SENSITIVITY = 25
 
 export function normalizeStartSensitivity(value: number): number {
   return Number.isFinite(value) ? Math.round(Math.max(0, Math.min(100, value))) : DEFAULT_START_SENSITIVITY

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 import { BrowserOutputAlignment, browserLatencyEstimate } from './output-alignment'
 import type { MetronomePlan } from './metronome'
 

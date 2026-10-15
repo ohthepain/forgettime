@@ -3,21 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@9.15.4",
-  "engines": {
-    "node": ">=22.12.0"
-  },
   "imports": {
     "#/*": "./src/*"
   },
   "scripts": {
-    "dev": "vite dev --port 3030",
-    "build": "vite build",
+    "dev": "vp dev --port 3030",
+    "build": "vp build",
     "start": "node server-production.mjs",
-    "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "preview": "vp preview",
+    "typecheck": "tsc --noEmit && tsc --project tsconfig.audio-tools.json",
+    "test": "vp test run",
+    "test:watch": "vp test",
     "db:generate": "drizzle-kit generate",
     "db:up": "docker compose up -d",
     "db:migrate": "drizzle-kit migrate",
@@ -27,7 +23,13 @@
     "cap:sync": "pnpm cap:prepare && cap sync",
     "cap:sync:android": "pnpm cap:prepare && cap sync android",
     "cap:android": "cap open android",
-    "cap:ios": "cap open ios"
+    "cap:ios": "cap open ios",
+    "lint": "vp lint",
+    "fmt": "vp fmt",
+    "fmt:check": "vp fmt --check",
+    "audio:compare": "node --import tsx scripts/compare-audio.ts",
+    "audio:fixtures:check": "node --import tsx scripts/check-audio-fixtures.ts",
+    "audio:parity": "node --import tsx plugins/forgettime-audio/tests/validate-parity.ts"
   },
   "dependencies": {
     "@aws-sdk/client-ses": "3.1034.0",
@@ -66,13 +68,21 @@
     "tailwindcss": "4.2.4",
     "tsx": "4.21.0",
     "typescript": "5.9.3",
-    "vite": "8.0.9",
-    "vitest": "3.2.4"
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.2.0",
+    "vite-plus": "1.2.0"
   },
+  "engines": {
+    "node": "^22.18.0 || ^24.11.0 || >=26.0.0"
+  },
+  "packageManager": "pnpm@9.15.4",
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild",
       "lightningcss"
-    ]
+    ],
+    "overrides": {
+      "vite@*": "npm:@voidzero-dev/vite-plus-core@1.2.0",
+      "vitest@*": "5.0.4"
+    }
   }
 }

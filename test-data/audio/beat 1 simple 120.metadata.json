@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "file": "beat 1 simple 120.wav",
+  "provenance": "User-supplied rendered WAV; original bytes retained.",
+  "sha256": "2d852156eabeec80b5bbefc414e3ae0adb91393834eacf0e328e8a599fe175b2",
+  "sampleRate": 44100,
+  "channels": 2,
+  "durationSeconds": 2,
+  "bpm": 120,
+  "intendedPattern": "Closed hat each eighth, kick beats 1/3, snare beats 2/4; one combined attack per eighth.",
+  "patternStatus": "confirmed",
+  "expectedGridSeconds": [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75],
+  "renderOffsetSeconds": 0,
+  "gridOriginStatus": "assumed",
+  "associationToleranceMs": 20,
+  "gridProvenance": "File-zero musical grid assumed consistent with preceding renders; this is not an acoustic attack annotation.",
+  "annotationStatus": "Musical expectations only; independently measured acoustic onset annotations are unavailable.",
+  "velocity": null,
+  "effects": null
+}

@@ -1,12 +1,26 @@
 # Drum detection progress
 
-## Agreed workflow
+## Current state — authoritative
+
+Read this section to resume. Historical rounds below preserve past experiments and user feedback; their old goals and next-step instructions are not current instructions.
+
+- **Retained detector:** default minimum RMS 0.002; conservative comparison profile 0.006. Smoothed 10 ms envelope rearming, per-attack peak reset, capped adaptive level gate, 4× disarmed rise override. Quiet attacks still pass rise/contrast checks. No frequency classifier or source amplification.
+- **Current goal:** preserve clear quiet hi-hat onsets after kick/snare accents without retriggers. Ordinary and dynamic simple loops each produce eight groups with no extras when startup is isolated. Both pass ten sample-alignment regressions. User has requested wide dynamic range and written-feedback-driven iteration.
+- **Provisionally accepted:** isolated instrument and combined-loop onset results; every detection must stay in the table. Exact intent in the sixteenth-note combination remains unconfirmed, so its ten candidates are not a complete accuracy benchmark.
+- **Known limitations:** production still suppresses the opening ~32 ms. Start sensitivity is a separate acquisition feature and is excluded from these onset goals. Render-grid origin is explicitly marked assumed where not confirmed; grid timing is not measured acoustic-onset accuracy. Native apps/devices remain unverified. The lower floor accepts more clear faint transients; the conservative profile preserves higher-level rejection behavior and misses two or three hats in the dynamic fixture depending on sample alignment.
+- **Reproducible tooling:** `pnpm audio:fixtures:check`, then `pnpm audio:compare "beat 1 simple dyn 120.wav"`. Add `--assume-silence` only for separately labelled assumed-prehistory experiments. Current source hashes, fixture hash, settings and all detections are saved with each report. Never text-patch source for report generation.
+- **Validation:** 274 tests pass (including 28 new fixture/report/profile checks), with 21 device/tooling-gated skips. All 11 WAV sidecars validate. App/tool typecheck, production build and both-profile Java/Swift host parity pass. Lint passes with existing warnings in unrelated files. The macOS parity CI job is configured and YAML syntax checked; no remote CI run is claimed.
+- **Next action:** review the latest repeatable comparison with the user and choose the next loop or goal. Detector tuning is retained; the workflow-tooling round is complete. Preserve unrelated Vite Plus/runtime migration work.
+
+## Historical rounds
+
+### Agreed workflow
 
 User renders WAV loops in Ableton. Analyze offline, show detection results, and collect written feedback. Keep fixtures in this version-controlled folder for regressions. Accept new goals anytime. Detector edits and local checks are authorized within the active goal.
 
 Default tempo: 100 BPM, explicitly supplied to the analyzer. For app comparisons the user sets the same tempo; the first qualifying attack anchors the reference.
 
-## Goals
+### Goals
 
 | Goal | Status | Completion evidence |
 | --- | --- | --- |
@@ -17,13 +31,13 @@ Default tempo: 100 BPM, explicitly supplied to the analyzer. For app comparisons
 | Vary speed/velocity, combine instruments and grooves | Pending | Define cases and criteria as the user progresses. |
 | Ghost notes, flams, rolls and fills | Pending | Define attack and uncertainty expectations per case. |
 
-## Next round
+### Next round
 
 Review closed hi-hat results with the user. Startup/noise tradeoff and kick retrigger remain deferred technical issues; provisionally accepting the kick example does not mean those are fixed in production.
 
 Update: closed hi-hat accepted. Await feedback on snare/open hi-hat/ride/crash batch below.
 
-## Round 1: kick 100 1 bar.wav
+### Round 1: kick 100 1 bar.wav
 
 User feedback: "ki have added kick 100 1 bar.wav".
 
@@ -35,7 +49,7 @@ If the intended pattern is four quarter-note kicks at 0, 0.6, 1.2 and 1.8 second
 
 Await written confirmation of the rendered pattern and user feedback on these results. No detector code changed.
 
-## Round 1 correction: actual kick replacement
+### Round 1 correction: actual kick replacement
 
 User feedback: "i can see that the first kick begins pretty much on the first sample. but the sample contained a stick sound not a kick. now it contains a kick, 4 hits, quantized exactly to the beat,"
 
@@ -45,13 +59,13 @@ Replacement baseline at 100 BPM / auto / sensitivity 50 again detects 0.601406, 
 
 Source inspection confirms the detector deliberately suppresses detections until 12 analysis windows (~32 ms) establish background energy, explaining why a first-sample attack is excluded initially. Exact later decay behavior needs further investigation. No detector code changed.
 
-## Startup assumption probe
+### Startup assumption probe
 
 User clarified that incoming signal can be assumed normalized, while quieter kits must still be detected, and requested another kick-loop trial. Temporarily removing the startup-history gate finds the opening attack at 0.001474 seconds. Remaining candidates are 0.601406, 1.201837, 1.220227 and 1.801837: all four intended beats represented, but third-kick retrigger remains. The first candidate's peak strength (0.094986) is still below default Start sensitivity's 0.1 threshold, so reference still starts at 1.201837 seconds. Detection and start acquisition are distinct problems.
 
 The probe causes seven existing ambient-noise regressions. Restored the original detector exactly; all 27 detector tests pass again. Experimental report retained in `output/audio-validation/kick-100-1-bar/startup-probe.json`. This is a diagnostic result, not an accepted implementation or native parity claim. Quiet baseline probes are recorded separately in `quiet-baseline.json`; gain reductions do not modify the original WAV.
 
-## Round 2: closed hi-hat
+### Round 2: closed hi-hat
 
 User feedback: "it looks good. the peak energy of the kick isn't until 0.01 seconds into the sample so i think these results are find. it may even be too sensitive, but let's give pass it for now. we can move onto the closed hihat loop hhc 100 1 bar".
 
@@ -59,7 +73,7 @@ Kick probe provisionally accepted for workflow progression; no production change
 
 Closed hi-hat WAV: 44.1 kHz stereo, 1.95 seconds. At 100 BPM / auto / sensitivity 50, unchanged detector finds candidates at 0.601315, 1.201315 and 1.801315 seconds, with no close duplicate candidates; reference anchors at 0.601315 seconds. Initial attack is excluded by startup history. Experimental gate-bypass results are saved separately, using an output-only copy of the detector, without changing production source. Full reports: `output/audio-validation/hhc-100-1-bar/`. Exact intended pattern remains to be confirmed; quarter-note grid is provisional. No full-bar trailing silence, so pause is not evaluated.
 
-## Round 3: instrument batch
+### Round 3: instrument batch
 
 User confirmed the closed hi-hat pattern/results and requested remaining supplied files. Analyzed all six originals for a consistent comparison at 100 BPM, auto, sensitivity 50, preserving production code. Experimental detector copy bypasses only startup history. Musical grid expectations are four quarter notes; acoustic onset annotations remain separate and unverified.
 
@@ -74,13 +88,13 @@ User confirmed the closed hi-hat pattern/results and requested remaining supplie
 
 Reports and summary: `output/audio-validation/instrument-baselines/`. Fixture metadata contains hashes and reproduction paths. All files stereo 44.1 kHz; snare is 2.4 seconds, others 1.95 seconds. None supports a full-bar trailing-silence check. No detector changes retained; experimental findings are not native-device validation. Await user feedback before moving to combinations or quieter cases.
 
-## Scope clarification: Start sensitivity
+### Scope clarification: Start sensitivity
 
 User feedback: "i think we can ignore start sensitivity, that's a separate issue. we don't expect quiet cymbal taps to start the recording".
 
 For this offline loop, judge onset detection independently of reference acquisition. A quiet cymbal attack can be a successful detection while correctly failing Start sensitivity; lack of reference acquisition is not a failure of the active detection goal. Leave Start sensitivity unchanged and defer its evaluation unless the user requests it. Continue showing detected attacks without requiring acquisition or numeric rhythm scores. This does not resolve the separate startup-history gate or kick retrigger.
 
-## Round 4: kick, snare and hat at 120 BPM
+### Round 4: kick, snare and hat at 120 BPM
 
 User supplied `kick snare hat 120 1 bar.wav` and confirmed 120 BPM. Original stereo 44.1 kHz WAV is 2 seconds. Exact instrument placements and simultaneous attacks are not yet confirmed; do not infer separate instrument detection from combined transients.
 
@@ -92,15 +106,15 @@ User confirmed hi-hat eighth notes, kick/snare quarter notes, all quantized. Exa
 
 Experimental results: 1.1 +1.315 ms; 1.3 +2.313 ms; 2.1 +0.590 ms; 2.3 +2.313 ms; 3.1 +1.837 ms; 3.3 +2.313 ms; 4.1 +0.590 ms; 4.3 +2.313 ms. Full precision in `output/audio-validation/kick-snare-hat-120/grid-results.json`. Skill updated to use this presentation for later takes. Production remains unchanged.
 
-## Round 5: sixteenth-note render
+### Round 5: sixteenth-note render
 
 User requested `kick snare hat 16ths 120 1 bar.wav`. Actual decoded duration is 0.124989 seconds (5512 frames at 44.1 kHz): one sixteenth at 120 BPM, not one 2-second bar. Unchanged detector finds zero candidates; experimental startup bypass finds one at 0.001315 seconds, provisional position 1.1 with +1.315 ms error against file-zero grid. Cannot assess the intended full-bar pattern from this short render. Ask user to export full 2-second bar before proceeding. File preserved unchanged; hash/metadata beside source and reports in `output/audio-validation/kick-snare-hat-16ths-120/`. Production unchanged.
 
-### Replacement render
+#### Replacement render
 
 User replaced the WAV and requested a retry. Duration now 2 seconds. Production finds 9 candidates; startup-bypass experiment finds 10, at positions 1.1 (+1.315 ms), 1.2 (+2.324 ms), 1.3 (+2.313 ms), 2.1 (+0.590 ms), 2.3 (+2.313 ms), 3.1 (+1.837 ms), 3.3 (+2.313 ms), 4.1 (+0.590 ms), 4.3 (+2.313 ms), 4.4 (+2.324 ms). No close duplicate candidates. Grid assumes file-zero beat 1, consistent with prior renders. Exact expected pattern remains unconfirmed; do not call the six unoccupied sixteenth positions misses without confirmation. Ask whether extra sixteenths were intended only at 1.2 and 4.4 or throughout the bar. Metadata retains prior short-render hash; reports saved as replacement-baseline.json and replacement-probe.json in the same output folder. Production unchanged.
 
-## Round 6: beat 1 120
+### Round 6: beat 1 120
 
 Analyzed user-supplied `beat 1 120.wav` at 120 BPM, auto mode. Duration 2 seconds, stereo 44.1 kHz. Current detector source now includes configurable settings and rejection diagnostics from work outside this loop. Adapted the output-only probe to bypass only the current warming-up rejection; production source remains untouched.
 
@@ -108,7 +122,7 @@ Baseline: four accepted onsets at 0.486984, 1.003651, 1.032971 and 1.491497 seco
 
 Reports: `output/audio-validation/beat-1-120/`; checksum and format in fixture metadata. Start sensitivity excluded from onset assessment. Next: ask user to confirm intended attack positions and whether this render is quantized.
 
-### Confirmed failures
+#### Confirmed failures
 
 User feedback: "there should only be one hit detected at 1.1. the kick reaches peak energy around 27ms in. but we detect 2. the same happens at 3.1. we have completely missed a loud kick at the 8th note after beat 2".
 
@@ -116,7 +130,7 @@ Expected: one onset each at 1.1 and 3.1; kick at 2.3 (0.75 seconds). The late de
 
 Diagnostics confirm attempted attacks at 0.750317 and 0.751882 seconds rejected solely for level. Their RMS values are 0.011550 and 0.021974 against the adaptive minimum of 0.029089 left by earlier high energy. Rise/contrast pass. This is detector-level masking, independent of Start sensitivity. At 3.1 the detector accepts a second rise 29.32 ms after the initial candidate; it rearms within the same evolving kick. Rejections saved in `output/audio-validation/beat-1-120/rejections.json`. No fix applied yet. Active failure case: suppress within-kick retriggers while retaining the independently confirmed 2.3 kick and quiet/faster distinct hits in prior fixtures.
 
-## Round 7: beat 1 simple 120 / dynamic range
+### Round 7: beat 1 simple 120 / dynamic range
 
 User requires wide dynamic range: loud kick/snare must not mask important quiet hat ghost notes. Prefer amplitude changes over raw level, with a very low minimum. Frequency-content changes explicitly deferred. User confirmed this fixture has closed hat each eighth, kick on beats 1/3 and snare on beats 2/4: eight combined expected attack positions. File-zero origin assumed consistent with earlier renders; grid events are not independently measured acoustic onset annotations.
 
@@ -126,7 +140,7 @@ An additional output-only experiment removes the loud-history multiplier from mi
 
 Reports, diagnostics and experimental copies: `output/audio-validation/beat-1-simple-120/`. No production source changes or claim of a validated fix. Broader noise/ghost-note regression tests not run for this diagnostic experiment. Next: user review of recovered hats and ongoing kick retriggers before choosing the next refinement.
 
-## Retained fix: kick-body retriggers and quiet hats
+### Retained fix: kick-body retriggers and quiet hats
 
 User requested fixing extra kicks while preserving quiet hats and showing every detection. Retained the following in TypeScript, Java and Swift: a 10 ms smoothed energy envelope for rearming; resetting envelope-peak tracking for each accepted attack; requiring a distinct 2.5× local rise when using the short-background exception without full-history contrast; capping the adaptive minimum at twice the selected minimum RMS. No spectral classifier, long hit blackout, or timestamp shift was added. Start sensitivity and the existing startup-history gate are unchanged.
 
@@ -138,7 +152,7 @@ Added real-WAV regression across ten lead-in/sample alignments; all eight groups
 
 Reports and complete detections: `output/audio-validation/kick-fix/fixed-summary.json` and per-file reports beside it. Next: review these retained-fix results with user; startup acquisition and the negative backbeat grid offsets remain separate known concerns.
 
-## Round 8: quieter eighth-note hats
+### Round 8: quieter eighth-note hats
 
 User requested `beat 1 simple dyn 120.wav`, describing quieter hats on the eighth notes. WAV is stereo 44.1 kHz, 2 seconds. Assessed as the quieter variant of the preceding simple eight-attack pattern, with file-zero origin assumed.
 
@@ -148,7 +162,7 @@ The missed hats' candidate windows fail level, rise and contrast. At 0.252313 s 
 
 Metadata/checksum saved beside source; reports and rejected candidates in `output/audio-validation/beat-1-simple-dyn-120/`. Next: review failed quiet-hat case and refine low-level change detection without restoring kick retriggers or noise false positives.
 
-## Retained sensitivity change: recover the dynamic hats
+### Retained sensitivity change: recover the dynamic hats
 
 User clarified that audible/visible quiet hats have clear onsets and detection should emphasize relative increases instead of demanding loud absolute levels. A failing regression reproduced missing hats on all ten analysis-window alignments. The existing Minimum level control at 0.002 recovers the supplied attacks: no spectral classifier or new relative-threshold heuristic was needed. Lowered the default from 0.006 to 0.002 consistently in shared/Java/Swift settings, retaining rise/contrast, timestamping and smoothed-envelope checks.
 
@@ -161,3 +175,9 @@ Every dynamic-loop detection using the separate startup bypass: 1.1 0.001315 (+1
 Validation: 246 tests passed, 21 device/tooling-gated skipped; typecheck, production build and Java/Swift host onset/waveform parity pass. Native parity now includes both supplied loops at two sample alignments plus sensitive low-level synthetic attacks. An initial full-suite run alongside the build timed out in one import test; the subsequent full suite run independently passes. Native apps were not synced/rebuilt/device-tested.
 
 Complete before/after detections: `output/audio-validation/quiet-onset-fix/results.json`. Changes are retained locally, not committed or pushed. Next: user feedback on this sensitive default before progressing to more complex material.
+
+### Retrospective follow-through: reproducible investigation
+
+Added `audio:compare` with full per-profile production/assumed-prehistory tables, source and fixture provenance, and ignored JSON reports. Added schema/checksum/duration/grid checks for every fixture, completed missing sidecars, and kept partial/unknown intention explicit. Added default/conservative matrix tests for both simple loops, alignment, close/soft follow-ups and noise; improvements may recover additional conservative hats without freezing misses as the desired behavior. Extended native parity to both profiles and configured a separate macOS CI job. Typechecking now includes the offline tools. Updated the project skill and fixture guide to use these commands; historical source-patched experiments remain historical evidence only.
+
+Local validation: 274 passed, 21 skipped; fixture check, app/tools typecheck, build and Java/Swift parity pass. Lint has existing unrelated warnings. Checks used supported local Node 22.21.1 while CI remains pinned to `.node-version`. No detector algorithm, live capture, native app build, commit or push was part of these workflow improvements.

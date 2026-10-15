@@ -7,11 +7,11 @@
   "durationSeconds": 1.95,
   "bpm": 100,
   "sourceDescription": "User filename: kick 100 1 bar.wav",
-  "intendedPattern": "Four quantized quarter-note hits at 100 BPM; musical grid confirmed by user for this exercise. Precise acoustic onset times unannotated.",
+  "intendedPattern": "Four quantized quarter-note attacks; confirmed by user.",
   "renderOffsetSeconds": 0,
   "velocity": null,
   "effects": null,
-  "annotationStatus": "User-confirmed musical grid; no independent acoustic onset annotation.",
+  "annotationStatus": "Musical expectations only; independently measured acoustic onset annotations are unavailable.",
   "baselineReport": "output/audio-validation/instrument-baselines/kick-baseline.json",
   "previousRevision": {
     "sha256": "cce26a4c2ee54f242b987807fb569cf0703db55316e862972c94a20dd0e48ca0",
@@ -19,11 +19,11 @@
     "baselineReport": "output/audio-validation/kick-100-1-bar/baseline.json",
     "durationSeconds": 2.4
   },
-  "intendedGridSeconds": [
-    0,
-    0.6,
-    1.2,
-    1.8
-  ],
-  "experimentalReport": "output/audio-validation/instrument-baselines/kick-probe.json"
+  "experimentalReport": "output/audio-validation/instrument-baselines/kick-probe.json",
+  "schemaVersion": 1,
+  "patternStatus": "confirmed",
+  "expectedGridSeconds": [0, 0.6, 1.2, 1.8],
+  "gridOriginStatus": "confirmed",
+  "associationToleranceMs": 20,
+  "gridProvenance": "User describes opening kick at approximately the first sample; musical origin is sample zero."
 }

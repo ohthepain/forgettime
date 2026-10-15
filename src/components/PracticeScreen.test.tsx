@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { webcrypto } from 'node:crypto'
 import { importedMaterial } from '../audio/audio-import'
 import { createBarFiles, restoreBarFiles } from '../audio/bar-files'
@@ -173,6 +173,7 @@ it('offers waveform loop playback, identifies replay, and preserves original/cur
   expect(screen.getByText(/Fresh looping state can differ/)).toBeDefined()
   expect(screen.getByRole('button', { name: 'Original capture' })).toBeDefined()
   expect(screen.getByRole('button', { name: 'Current loop' })).toBeDefined()
+  fireEvent.click(screen.getByRole('button', { name: 'Recording options' }))
   expect((screen.getByRole('button', { name: 'Auto capture' }) as HTMLButtonElement).disabled).toBe(true)
   expect((screen.getByRole('spinbutton') as HTMLInputElement).disabled).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: 'Pause recorded bar' }))

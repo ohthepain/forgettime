@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test'
 import { NativeBarReplay } from './native-replay'
 import type { ReplayState } from './replay'
 import type { RecordedTake } from './recorded-take'

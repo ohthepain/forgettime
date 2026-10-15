@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { hitOpacity, TimingEngine, type InterpretationMode } from './engine';
 
 const hit = (engine: TimingEngine, time: number, confidence = 0.95) => engine.addOnset({ time, strength: 0.7, confidence });

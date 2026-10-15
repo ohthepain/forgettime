@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from 'vitest'
+import { beforeEach, expect, it, vi } from 'vite-plus/test'
 import { readFileSync } from 'node:fs'
 import { createNativeBarFiles } from './native-files'
 import { restoreBarFiles } from './bar-files'

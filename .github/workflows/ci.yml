@@ -24,7 +24,7 @@ jobs:
           version: 9.15.4
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
@@ -35,8 +35,29 @@ jobs:
           node --import tsx scripts/validate-auth.ts
           node --import tsx scripts/validate-auth.ts --legacy-schema
       - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm audio:fixtures:check
       - run: pnpm test
       - run: pnpm build
+  audio-parity:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audio:fixtures:check
+      - run: pnpm audio:parity
   terraform:
     runs-on: ubuntu-latest
     timeout-minutes: 10

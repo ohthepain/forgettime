@@ -2,7 +2,7 @@
 import { renderToString } from 'react-dom/server'
 import { hydrateRoot } from 'react-dom/client'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test'
 import { PracticeScreen } from './PracticeScreen'
 import { usePreferences } from '../lib/preferences'
 import type { CaptureCallbacks, CaptureInfo } from '../audio/capture'
@@ -29,6 +29,7 @@ it('offers explicit single or Auto capture without confusing rhythmic Auto, and 
   const view = render(<PracticeScreen />)
   expect(capture.create).not.toHaveBeenCalled()
   expect(screen.getByRole('button', { name: 'Auto' })).toBeDefined() // rhythmic interpretation
+  fireEvent.click(screen.getByRole('button', { name: 'Recording options' }))
   const auto = screen.getByRole('button', { name: 'Auto capture' })
   expect(auto.getAttribute('aria-pressed')).toBe('false')
   await act(async () => fireEvent.click(auto))
@@ -52,6 +53,7 @@ it('offers explicit single or Auto capture without confusing rhythmic Auto, and 
 
 it('overlays accessible bar navigation and stops Auto when reviewing retained audio', async () => {
   render(<PracticeScreen />)
+  fireEvent.click(screen.getByRole('button', { name: 'Recording options' }))
   await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Auto capture' })))
   act(() => callbacks.onFrame({ ...info, time: 6, level: 0.8,
     onsets: [0.1, 0.6, 1.1, 1.6, 2.1, 2.6, 3.1, 3.6].map(time => ({ time, strength: 0.8, confidence: 0.95 })),
@@ -124,6 +126,7 @@ it('hydrates the server screen before loading the browser saved library without 
 
 it('enters review before inspecting completed Auto candidates while leaving active live inspection running', async () => {
   render(<PracticeScreen />)
+  fireEvent.click(screen.getByRole('button', { name: 'Recording options' }))
   await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Auto capture' })))
   act(() => callbacks.onFrame({ ...info, time: 1, level: .8, onsets: [{ time: .1, strength: .8, confidence: .95 }], pcm: { startFrame: 0, samples: new Float32Array(48000) } }))
   fireEvent.click(screen.getByRole('button', { name: 'Detection details' }))

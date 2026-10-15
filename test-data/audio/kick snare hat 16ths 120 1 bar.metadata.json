@@ -7,10 +7,10 @@
   "durationSeconds": 2,
   "bpm": 120,
   "intendedPattern": "Kick, snare and hi-hat sixteenth-note loop; exact instrument placements await confirmation.",
-  "renderOffsetSeconds": null,
+  "renderOffsetSeconds": 0,
   "velocity": null,
   "effects": null,
-  "annotationStatus": "No independently measured acoustic onsets. Grid origin zero provisional, consistent with preceding renders.",
+  "annotationStatus": "Musical expectations only; independently measured acoustic onset annotations are unavailable.",
   "baselineReport": "output/audio-validation/kick-snare-hat-16ths-120/replacement-baseline.json",
   "experimentalReport": "output/audio-validation/kick-snare-hat-16ths-120/replacement-probe.json",
   "previousRevision": {
@@ -18,5 +18,11 @@
     "durationSeconds": 0.12498866213151927,
     "baselineReport": "output/audio-validation/kick-snare-hat-16ths-120/baseline.json",
     "experimentalReport": "output/audio-validation/kick-snare-hat-16ths-120/startup-probe.json"
-  }
+  },
+  "schemaVersion": 1,
+  "patternStatus": "unknown",
+  "expectedGridSeconds": null,
+  "gridOriginStatus": "assumed",
+  "associationToleranceMs": 20,
+  "gridProvenance": "File-zero musical grid assumed consistent with preceding renders; this is not an acoustic attack annotation."
 }

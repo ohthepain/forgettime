@@ -6,11 +6,17 @@
   "channels": 2,
   "durationSeconds": 1.95,
   "bpm": 100,
-  "intendedPattern": "Four quantized quarter-note hits at 100 BPM; musical grid confirmed by user for this exercise. Precise acoustic onset times unannotated.",
-  "renderOffsetSeconds": null,
+  "intendedPattern": "Four quantized quarter-note attacks; confirmed by user.",
+  "renderOffsetSeconds": 0,
   "velocity": null,
   "effects": null,
-  "annotationStatus": "User-confirmed musical grid; no independent acoustic onset annotation.",
+  "annotationStatus": "Musical expectations only; independently measured acoustic onset annotations are unavailable.",
   "baselineReport": "output/audio-validation/instrument-baselines/hhc-baseline.json",
-  "experimentalReport": "output/audio-validation/instrument-baselines/hhc-probe.json"
+  "experimentalReport": "output/audio-validation/instrument-baselines/hhc-probe.json",
+  "schemaVersion": 1,
+  "patternStatus": "confirmed",
+  "expectedGridSeconds": [0, 0.6, 1.2, 1.8],
+  "gridOriginStatus": "assumed",
+  "associationToleranceMs": 20,
+  "gridProvenance": "File-zero musical grid assumed consistent with preceding renders; this is not an acoustic attack annotation."
 }

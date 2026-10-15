@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { decodeWav } from './wav';
 
 function wav({ extended = false, float = false, channels = 1, payload = Buffer.from([0, 64, 0, 192]) } = {}) {

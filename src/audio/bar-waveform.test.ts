@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 import { BarWaveformBuffer, hitStrengthColor, HIT_STRENGTH_COLORS } from './bar-waveform'
 import { TimingEngine, type TimingSnapshot } from './engine'
 
 function state(origin = 10, bpm = 120): TimingSnapshot {
-  const engine = new TimingEngine({ bpm })
+  const engine = new TimingEngine({ bpm, startSensitivity: 50 })
   engine.start(origin)
   engine.addOnset({ time: origin, strength: 0.8, confidence: 0.9 })
   return engine.snapshot(origin)
@@ -85,7 +85,7 @@ describe('one-bar circular waveform', () => {
 
   it.each([60, 120, 240])('recovers a full played bar after the %i BPM silence timeout without mixing sweeps', bpm => {
     const buffer = new BarWaveformBuffer()
-    const engine = new TimingEngine({ bpm })
+    const engine = new TimingEngine({ bpm, startSensitivity: 50 })
     const beat = 60 / bpm
     const bar = beat * 4
     engine.start(10)

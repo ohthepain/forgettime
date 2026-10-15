@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { webcrypto } from 'node:crypto'
 import { act, cleanup, renderHook } from '@testing-library/react'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test'
 import { Capacitor } from '@capacitor/core'
 import { usePractice } from './use-practice'
 import { OnsetDetector } from './onset-detector'

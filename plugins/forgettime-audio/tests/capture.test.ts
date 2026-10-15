@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { DEFAULT_DETECTOR_SETTINGS } from '../../../src/audio/detector-contract'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { createAudioCapture } from '../../../src/audio/capture'
 
 const mocks = vi.hoisted(() => ({

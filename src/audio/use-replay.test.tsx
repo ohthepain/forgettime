@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, renderHook } from '@testing-library/react'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test'
 import { usePractice } from './use-practice'
 import { OnsetDetector } from './onset-detector'
 import type { CaptureCallbacks } from './capture'

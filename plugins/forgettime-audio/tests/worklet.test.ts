@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
-import { expect, it } from 'vitest'
+import { expect, it } from 'vite-plus/test'
 import { BrowserOutputAlignment } from '../../../src/audio/output-alignment'
 import { OnsetDetector } from '../../../src/audio/onset-detector'
 import { TimingEngine } from '../../../src/audio/engine'

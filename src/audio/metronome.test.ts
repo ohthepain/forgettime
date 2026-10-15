@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 import { TimingEngine, type ResolvedHit, type TimingSnapshot } from './engine'
 import { DEFAULT_METRONOME, MetronomeCoach } from './metronome'
 

@@ -16,7 +16,9 @@ pnpm build
 
 ## Run locally
 
-Node 22.12+ and pnpm 9.15.4 are required.
+Node 22.18+ (22.x), 24.11+ (24.x), or 26+ and pnpm 9.15.4 are required.
+
+Vite+ 1.2.0 provides development, builds, tests, linting and formatting. Existing `pnpm dev`, `pnpm build` and `pnpm test` commands use the project-local `vp` CLI; no global installation is required. Use `pnpm lint`, `pnpm fmt:check` or `pnpm fmt` for linting and formatting.
 
 ```sh
 pnpm install

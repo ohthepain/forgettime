@@ -6,22 +6,17 @@
   "channels": 2,
   "durationSeconds": 2,
   "bpm": 120,
-  "intendedPattern": "User-confirmed: hi-hat on eighth notes; kick and snare on quarter notes, all quantized. Exact kick/snare allocation across beats not specified.",
+  "intendedPattern": "Closed hat each eighth, kick/snare on quarter notes; exact kick/snare allocation not specified.",
   "renderOffsetSeconds": 0,
   "velocity": null,
   "effects": null,
-  "annotationStatus": "Exploratory; no independent onset annotations.",
+  "annotationStatus": "Musical expectations only; independently measured acoustic onset annotations are unavailable.",
   "baselineReport": "output/audio-validation/kick-snare-hat-120/baseline.json",
   "experimentalReport": "output/audio-validation/kick-snare-hat-120/startup-probe.json",
-  "expectedGridSeconds": [
-    0,
-    0.25,
-    0.5,
-    0.75,
-    1,
-    1.25,
-    1.5,
-    1.75
-  ],
-  "gridProvenance": "User-confirmed musical placement, not independently measured acoustic onsets."
+  "expectedGridSeconds": [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75],
+  "gridProvenance": "File-zero musical grid assumed consistent with preceding renders; this is not an acoustic attack annotation.",
+  "schemaVersion": 1,
+  "patternStatus": "confirmed",
+  "gridOriginStatus": "assumed",
+  "associationToleranceMs": 20
 }

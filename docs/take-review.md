@@ -4,7 +4,7 @@ Forgettime keeps audio on your device. The microphone is off when the page/app o
 
 ## Record and review
 
-1. Set BPM and choose **Enable microphone** for one take, or **Auto** beside it for successive takes. The first reliable attack above Start sensitivity establishes beat 1. Tempo and phase remain fixed even if you drift.
+1. Set BPM and choose **Enable microphone** for one take, or hold the record button for **Auto** (also available in its dropdown) for successive takes. The dropdown beside Record exposes Start sensitivity; its default is 25% for a firmer starting hit. The first reliable attack above Start sensitivity establishes beat 1. Tempo and phase remain fixed even if you drift.
 2. A take ends after four beats of elapsed silence from the last accepted hit: 2 seconds at 120 BPM, 4 seconds at 60 BPM. Shorter rests preserve the take and beat clock. Single mode releases the microphone; Auto keeps listening for another take. **Stop listening** ends either mode immediately.
 3. Use the waveform's previous/next controls to inspect the captured bars. Any review action releases the microphone and switches Auto off. Initial review selects the last complete played bar where available; later captured audio remains accessible even if the detector missed it. Partial bars show their missing coverage and cannot loop.
 4. **Loop selected bar** plays the actual retained audio directly through the platform detector. The playhead, beat number, pendulum and meter follow playback. **Pause** preserves the selection. The microphone remains off, so room sound does not affect comparison.

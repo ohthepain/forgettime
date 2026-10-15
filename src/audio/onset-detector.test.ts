@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { OnsetDetector, type DetectedOnset } from './onset-detector';
 import { TimingEngine } from './engine';
 import { accentFollowUpFixture, levelRecoveryFixture } from './fixtures/level-recovery';

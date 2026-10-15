@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /** Opt-in host Java integration; generated PCM is not physical microphone evidence. */
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'

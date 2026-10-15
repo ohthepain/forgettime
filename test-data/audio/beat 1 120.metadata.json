@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "file": "beat 1 120.wav",
+  "provenance": "User-supplied rendered WAV; original bytes retained.",
+  "sha256": "a9a8bc29921d48043c4dd79808d227b5b96860e27da96ef3e1ee8197ba6eb50d",
+  "sampleRate": 44100,
+  "channels": 2,
+  "durationSeconds": 2,
+  "bpm": 120,
+  "intendedPattern": "User confirms one attack at 1.1, one at 3.1, and a kick at 2.3. Other positions are unconfirmed.",
+  "patternStatus": "partial",
+  "expectedGridSeconds": [0, 0.75, 1],
+  "renderOffsetSeconds": 0,
+  "gridOriginStatus": "assumed",
+  "associationToleranceMs": 20,
+  "gridProvenance": "File-zero musical grid assumed consistent with preceding renders; this is not an acoustic attack annotation.",
+  "annotationStatus": "Musical expectations only; independently measured acoustic onset annotations are unavailable.",
+  "velocity": null,
+  "effects": null
+}

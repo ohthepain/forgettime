@@ -116,3 +116,17 @@
 .saved-bars{margin:12px 0;color:#91a2ac;font-size:12px}.saved-bars button{min-height:40px;padding:7px 12px;border:1px solid #34424c;border-radius:9px;background:#202a32;color:#b8c7ce;cursor:pointer}.saved-bars button:disabled{opacity:.45;cursor:default}.saved-bars details{margin-top:10px}.saved-bars summary{cursor:pointer;padding:6px 0}.saved-bars p{font-size:11px;line-height:1.5}.saved-bars ul{list-style:none;padding:0;max-height:240px;overflow:auto}.saved-bars li{padding:9px 0;border-top:1px solid #303e48;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px}.saved-bars li div{display:flex;gap:5px}
 
 .audio-import{margin:14px 0;padding:12px;border:1px dashed #394953;border-radius:12px;color:#91a2ac;font-size:12px}.audio-import p{font-size:11px;line-height:1.5}.audio-import button{min-height:40px;padding:8px 12px;margin:3px 6px 3px 0;border:1px solid #34424c;border-radius:9px;background:#202a32;color:#b8c7ce;cursor:pointer}.audio-import button:disabled{opacity:.45}.import-setup label{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:12px 0}.import-setup input{width:130px;padding:8px;background:#18232b;color:#d4e0e4;border:1px solid #34424c;border-radius:7px}.import-setup svg{width:100%;height:88px;background:#17212a;border-radius:8px;cursor:crosshair;touch-action:none}.import-setup svg:focus{outline:2px solid #8caa94}
+
+.card-recording { display: flex; align-items: center; gap: 12px; }
+.record-control { position: relative; display: flex; align-items: center; gap: 5px; }
+.record-button { width: 48px; height: 48px; display: grid; place-items: center; border: 1px solid #535457; border-radius: 10px; background: linear-gradient(#444548, #292a2d); box-shadow: inset 0 1px 1px #ffffff26, 0 3px 0 #141518, 0 5px 8px #0005; touch-action: none; user-select: none; }
+.record-button:active { transform: translateY(2px); box-shadow: inset 0 1px 4px #0006, 0 1px 0 #141518; }
+.record-circle { width: 23px; height: 23px; border-radius: 50%; background: #909195; border: 3px solid #909195; }
+.record-button.is-recording .record-circle { background: #ee555b; border-color: #ee555b; }
+.record-button.is-auto .record-circle { background: transparent; }
+.record-options { display: grid; place-items: center; width: 32px; min-height: 44px; border: 0; background: transparent; color: #aaa; }
+.record-popover { position: absolute; right: 0; top: calc(100% + 12px); width: min(290px, 75vw); z-index: 20; padding: 18px; border: 1px solid #494a4c; border-radius: 14px; background: #292a2d; box-shadow: 0 10px 30px #0008; text-transform: none; }
+.record-popover input { width: 100%; accent-color: #9cbea7; }
+.record-popover p { font-size: 12px; line-height: 1.5; color: #a7a8aa; }
+.record-button:focus-visible, .record-options:focus-visible { outline: 2px solid #9cbea7; outline-offset: 4px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }

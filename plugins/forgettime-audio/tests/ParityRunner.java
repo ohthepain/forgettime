@@ -9,9 +9,12 @@ public class ParityRunner {
     public static void main(String[] args) throws Exception {
         int rate = Integer.parseInt(args[1]);
         ByteBuffer pcm = ByteBuffer.wrap(Files.readAllBytes(Path.of(args[0]))).order(ByteOrder.LITTLE_ENDIAN);
-        DrumOnsetDetector detector = new DrumOnsetDetector(rate);
+        DrumOnsetDetector.Settings settings = args.length >= 7
+            ? new DrumOnsetDetector.Settings(1, Double.parseDouble(args[3]), Double.parseDouble(args[4]), Double.parseDouble(args[5]), Double.parseDouble(args[6]))
+            : new DrumOnsetDetector.Settings();
+        DrumOnsetDetector detector = new DrumOnsetDetector(rate, settings);
         WaveformEnvelopeCapture waveform = new WaveformEnvelopeCapture(rate);
-        boolean showWaveform = args.length > 2;
+        boolean showWaveform = args.length > 2 && args[2].equals("waveform");
         long frame = 0;
         while (pcm.hasRemaining()) {
             double sample = pcm.getFloat(), time = frame++ / (double) rate;
