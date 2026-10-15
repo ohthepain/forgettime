@@ -14,7 +14,7 @@ public final class DrumOnsetDetector {
     }
     public static final class Settings {
         public final double minimumRms, contrastRatio, minSeparationMs, recoverySeconds;
-        public Settings() { this(1, 0.006, 1.8, 18, 4); }
+        public Settings() { this(1, 0.002, 1.8, 18, 4); }
         public Settings(int version, double level, double contrast, double separation, double recovery) {
             if (version != 1 || !Double.isFinite(level) || !Double.isFinite(contrast) || !Double.isFinite(separation) || !Double.isFinite(recovery))
                 throw new IllegalArgumentException("Invalid detector settings version or values.");
@@ -111,7 +111,7 @@ public final class DrumOnsetDetector {
         List<String> reasons = new ArrayList<>();
         if (!backgroundReady) reasons.add("warming-up");
         if (elapsed < settings.minSeparationMs / 1000) reasons.add("separation");
-        if (!armed && ratio < 2.5) reasons.add("rearming");
+        if (!armed && ratio < 4) reasons.add("rearming");
         if (rms < minimumLevel) reasons.add("level");
         if (rise < 0.002 || ratio < 1.55) reasons.add("rise");
         if (contrast < settings.contrastRatio) reasons.add("contrast");
@@ -126,7 +126,7 @@ public final class DrumOnsetDetector {
             measurements.put("rise", rise); measurements.put("minimumRise", 0.002); measurements.put("ratio", ratio); measurements.put("minimumRatio", 1.55);
             measurements.put("contrast", contrast); measurements.put("minimumContrast", settings.contrastRatio);
             measurements.put("backgroundRms", backgroundRms); measurements.put("baselineRms", effectiveBaseline);
-            measurements.put("armed", armed); measurements.put("rearmRatio", 2.5);
+            measurements.put("armed", armed); measurements.put("rearmRatio", 4);
             measurements.put("elapsedMs", Double.isFinite(elapsed) ? elapsed * 1000 : null);
             measurements.put("minimumSeparationMs", settings.minSeparationMs);
             Map<String, Object> candidate = new LinkedHashMap<>();

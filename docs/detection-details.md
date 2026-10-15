@@ -6,12 +6,12 @@ The four controls apply when leaving their field or pressing Enter. Values are c
 
 | Control | Default | Supported range | Meaning |
 | --- | --- | --- | --- |
-| Minimum level | 0.006 RMS | 0.001–0.1 RMS | Absolute RMS floor for the level gate and rise/contrast baselines; adaptive 5% of recent level can raise the gate. Contrast can make the effective minimum stronger still. |
+| Minimum level | 0.002 RMS | 0.001–0.1 RMS | Absolute RMS floor for the level gate and rise/contrast baselines; adaptive 5% of recent level can raise the gate up to twice this floor. Contrast can make the effective minimum stronger still. |
 | Attack contrast | 1.8 | 1.1–4 times background | Required rise above the effective background; also determines whether an accepted accent establishes the short follow-up baseline. |
 | Minimum separation | 18 ms | 8–100 ms | Minimum captured interval after the previous detector-accepted attack. |
 | Level recovery | 4 s | 0.25–12 s | Exponential time constant for the recent-level reference after its fixed one-second hold. This changes detection, never PCM gain. |
 
-Defaults preserve the existing detector. The fixed minimum RMS rise remains 0.002; the rise ratio remains 1.55; rearming requires a fall below 70% of the recent peak or a rise ratio of at least 2.5. The warmup is 12 analysis windows, each approximately 2.7 ms (minimum 32 samples). These are signal-level quantities, not calibrated acoustic loudness or stick force. Updated Java and Swift ports implement this contract. While stopped, controls prepare the next run without activating audio. Starting native replay validates installed-plugin support and reports an older incompatible version instead of silently substituting the browser detector; active native capture without diagnostic support keeps the controls unavailable.
+The default minimum RMS is 0.002 to retain clear quiet onsets; selecting 0.006 restores a more conservative level gate. The fixed minimum RMS rise remains 0.002 and the rise ratio remains 1.55. Rearming uses a 10 ms smoothed energy envelope falling below 70% of its recent peak; while still disarmed, a distinct local rise of at least 4× can bypass rearming. The shorter-background exception separately requires a 2.5× rise when full-history contrast is insufficient. The warmup is 12 analysis windows, each approximately 2.7 ms (minimum 32 samples). These are signal-level quantities, not calibrated acoustic loudness or stick force. Updated Java and Swift ports implement this contract. While stopped, controls prepare the next run without activating audio. Starting native replay validates installed-plugin support and reports an older incompatible version instead of silently substituting the browser detector; active native capture without diagnostic support keeps the controls unavailable.
 
 ## Shared contract and retention
 

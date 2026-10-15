@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { decodeWav } from '../../scripts/lib/wav';
 import { OnsetDetector, type DetectedOnset } from './onset-detector';
 
-describe('user-confirmed WAV attack regression', () => {
-  const { samples, sampleRate } = decodeWav(readFileSync(new URL('../../test-data/audio/beat 1 simple 120.wav', import.meta.url)));
+describe.each(['beat 1 simple 120.wav', 'beat 1 simple dyn 120.wav'])('user-confirmed WAV attack regression: %s', file => {
+  const { samples, sampleRate } = decodeWav(readFileSync(new URL(`../../test-data/audio/${file}`, import.meta.url)));
 
   // Silence lets the existing startup gate finish. Vary sample alignment across
   // a complete detector window to catch trough-dependent retriggers. The source

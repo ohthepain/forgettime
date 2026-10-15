@@ -46,10 +46,10 @@ function ambience(duration: number, frequency: number, amplitude = 0.04, already
 }
 
 describe('captured-audio transient detection (synthetic fixtures)', () => {
-  it.each([44_100, 48_000])('recovers slowly after accents, retains ghost notes and eventually accepts quieter playing at %i Hz', sampleRate => {
+  it.each([44_100, 48_000])('at a selected 0.006 floor, recovers after accents and retains ghost notes at %i Hz', sampleRate => {
     const { samples, expectedTimes } = levelRecoveryFixture(sampleRate);
     const original = samples.slice();
-    const detector = new OnsetDetector();
+    const detector = new OnsetDetector({ minimumRms: 0.006 });
     const onsets: DetectedOnset[] = [];
     for (let i = 0; i < samples.length; i += 997) {
       onsets.push(...detector.process(samples.subarray(i, i + 997), i / sampleRate, sampleRate));
@@ -69,9 +69,16 @@ describe('captured-audio transient detection (synthetic fixtures)', () => {
     expect(onsets[1].strength).toBeLessThan(onsets[0].strength / 5);
   });
 
-  it('ignores faint post-playing transients through the full-bar timeout without hiding the beat early', () => {
+  it.each([44_100, 48_000])('default sensitivity retains clear low-level attacks after accents at %i Hz', sampleRate => {
+    const { samples, sensitiveExpectedTimes } = levelRecoveryFixture(sampleRate);
+    const hits = new OnsetDetector().process(samples, 0, sampleRate);
+    expect(hits).toHaveLength(sensitiveExpectedTimes.length);
+    hits.forEach((hit, i) => expect(Math.abs(hit.time - sensitiveExpectedTimes[i])).toBeLessThan(0.004));
+  });
+
+  it('at a selected 0.006 floor, ignores faint post-playing transients through the full-bar timeout', () => {
     const { samples } = levelRecoveryFixture(rate);
-    const detector = new OnsetDetector();
+    const detector = new OnsetDetector({ minimumRms: 0.006 });
     const engine = new TimingEngine({ bpm: 120 });
     engine.start(0);
     let lastHit = 0;
@@ -230,7 +237,8 @@ describe('versioned detector decisions from source PCM', () => {
     const onsets = detector.process(pcm, 0, rate)
     const diagnostics = detector.drainDiagnostics()
     expect(diagnostics.candidates).toHaveLength(4)
-    expect(diagnostics.candidates[0]).toMatchObject({ accepted: false, reasons: expect.arrayContaining(['level', 'rise', 'contrast']) })
+    expect(diagnostics.candidates[0]).toMatchObject({ accepted: false, reasons: expect.arrayContaining(['rise', 'contrast']) })
+    expect(diagnostics.candidates[0].reasons).not.toContain('level')
     expect(diagnostics.candidates[1].accepted).toBe(true)
     expect(diagnostics.candidates[2].reasons).toEqual(expect.arrayContaining(['separation', 'rearming', 'rise']))
     expect(diagnostics.candidates[2].measurements).toMatchObject({ armed: false, minimumRatio: 1.55, minimumSeparationMs: 18 })
@@ -261,10 +269,10 @@ describe('versioned detector decisions from source PCM', () => {
     const pulse = fixture(0.5, [{ time: 0.1, amplitude: 0.05, decay: 0.002 }, { time: 0.15, amplitude: 0.05, decay: 0.002 }])
     const run = (patch: Partial<typeof DEFAULT_DETECTOR_SETTINGS>, samples = pulse) => new OnsetDetector({ ...DEFAULT_DETECTOR_SETTINGS, ...patch }).process(samples, 0, rate)
     expect(run({ minimumRms: 0.001 }).length).toBeGreaterThan(run({ minimumRms: 0.1 }).length)
-    expect(run({ contrastRatio: 1.1 }).length).toBeGreaterThan(run({ contrastRatio: 4 }).length)
+    expect(run({ minimumRms: 0.006, contrastRatio: 1.1 }).length).toBeGreaterThan(run({ minimumRms: 0.006, contrastRatio: 4 }).length)
     const separation = fixture(0.5, [{ time: 0.1, amplitude: 0.8, decay: 0.002 }, { time: 0.15, amplitude: 0.8, decay: 0.002 }])
     expect(run({ minSeparationMs: 8 }, separation).length).toBeGreaterThan(run({ minSeparationMs: 100 }, separation).length)
     const recovery = levelRecoveryFixture(rate).samples
-    expect(run({ recoverySeconds: 0.25 }, recovery).length).toBeGreaterThan(run({ recoverySeconds: 12 }, recovery).length)
+    expect(run({ minimumRms: 0.006, recoverySeconds: 0.25 }, recovery).length).toBeGreaterThan(run({ minimumRms: 0.006, recoverySeconds: 12 }, recovery).length)
   })
 })

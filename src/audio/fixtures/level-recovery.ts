@@ -6,13 +6,17 @@ export function levelRecoveryFixture(rate: number) {
     { time: 0.6, amplitude: 0.8 },
     { time: 0.85, amplitude: 0.08 }, // Intentional ghost note after the accent.
     { time: 1.1, amplitude: 0.8 },
-    // Faint transient probes during the waiting period must not extend the bar.
+    // At a selected 0.006 floor these probes must not extend the bar. The more
+    // sensitive default treats their clear onsets as quiet attacks instead.
     ...[1.5, 2, 2.5, 3].map(time => ({ time, amplitude: 0.03 })),
     { time: 8, amplitude: 0.04 }, // Sensitivity eventually recovers for quiet playing.
   ];
   return {
     samples: synthesizeAttacks(rate, duration, attacks),
     expectedTimes: [0.1, 0.6, 0.85, 1.1, 8],
+    // The sensitive default retains these clear low-level attacks too. A higher
+    // selected floor can reject them as ambient probes.
+    sensitiveExpectedTimes: attacks.map(attack => attack.time),
   };
 }
 

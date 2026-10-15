@@ -93,12 +93,14 @@ try {
     if (rate === 44100) {
       // Real supplied render plus a deliberate startup lead-in. Native/shared
       // parity here is offline behavior, not a physical microphone benchmark.
-      const recording = decodeWav(readFileSync(resolve(base, '../../test-data/audio/beat 1 simple 120.wav')))
-      assert.equal(recording.sampleRate, rate)
-      for (const lead of [4410, 4449]) {
-        const pcm = new Float32Array(lead + recording.samples.length)
-        pcm.set(recording.samples, lead)
-        compare(`recorded-kick-and-quiet-hat-${lead}`, pcm)
+      for (const name of ['beat 1 simple 120', 'beat 1 simple dyn 120']) {
+        const recording = decodeWav(readFileSync(resolve(base, `../../test-data/audio/${name}.wav`)))
+        assert.equal(recording.sampleRate, rate)
+        for (const lead of [4410, 4449]) {
+          const pcm = new Float32Array(lead + recording.samples.length)
+          pcm.set(recording.samples, lead)
+          compare(`${name}-${lead}`, pcm)
+        }
       }
     }
     const rumble = new Float32Array(samples.length)
@@ -111,7 +113,7 @@ try {
     compare('ambient-rumble', rumble, true)
     compare('percussion-with-rumble', mixed)
     for (const [name, fixture] of [
-      ['slow-level-recovery', levelRecoveryFixture(rate)],
+      ['sensitive-level-recovery', { samples: levelRecoveryFixture(rate).samples, expectedTimes: levelRecoveryFixture(rate).sensitiveExpectedTimes }],
       ['softer-accent-follow-ups', accentFollowUpFixture(rate)],
       ['room-noise-after-accent', roomNoiseAfterAccentFixture(rate)],
     ] as const) compare(name, fixture.samples, false, fixture.expectedTimes)

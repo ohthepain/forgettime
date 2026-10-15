@@ -14,7 +14,7 @@ export const DETECTOR_CONTROLS: Record<DetectorSettingKey, { label: string; min:
   minSeparationMs: { label: 'Minimum separation', min: 8, max: 100, step: 1, unit: 'ms' },
   recoverySeconds: { label: 'Level recovery', min: 0.25, max: 12, step: 0.25, unit: 'seconds' },
 }
-export const DEFAULT_DETECTOR_SETTINGS: Readonly<DetectorSettings> = Object.freeze({ version: DETECTOR_VERSION, minimumRms: 0.006, contrastRatio: 1.8, minSeparationMs: 18, recoverySeconds: 4 })
+export const DEFAULT_DETECTOR_SETTINGS: Readonly<DetectorSettings> = Object.freeze({ version: DETECTOR_VERSION, minimumRms: 0.002, contrastRatio: 1.8, minSeparationMs: 18, recoverySeconds: 4 })
 export function normalizeDetectorSettings(settings: Partial<DetectorSettings> = {}): DetectorSettings {
   if (settings.version !== undefined && settings.version !== DETECTOR_VERSION) throw new RangeError('Unsupported detector settings version.')
   const result = { ...DEFAULT_DETECTOR_SETTINGS }

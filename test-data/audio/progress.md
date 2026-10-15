@@ -147,3 +147,17 @@ Retained detector finds five attacks; experimental startup bypass finds six: 1.1
 The missed hats' candidate windows fail level, rise and contrast. At 0.252313 s RMS is 0.005177; at 0.752313 s it is 0.006407. Selected floor is 0.006 and adaptive minimum is 0.009849. The same floor is the denominator for rise/contrast comparisons, so simply removing the adaptive increase will not recover these attacks. Start sensitivity is not involved. No further detector change made during this requested analysis.
 
 Metadata/checksum saved beside source; reports and rejected candidates in `output/audio-validation/beat-1-simple-dyn-120/`. Next: review failed quiet-hat case and refine low-level change detection without restoring kick retriggers or noise false positives.
+
+## Retained sensitivity change: recover the dynamic hats
+
+User clarified that audible/visible quiet hats have clear onsets and detection should emphasize relative increases instead of demanding loud absolute levels. A failing regression reproduced missing hats on all ten analysis-window alignments. The existing Minimum level control at 0.002 recovers the supplied attacks: no spectral classifier or new relative-threshold heuristic was needed. Lowered the default from 0.006 to 0.002 consistently in shared/Java/Swift settings, retaining rise/contrast, timestamping and smoothed-envelope checks.
+
+Lowering the floor exposed one kick-body shortcut at a different window alignment (local ratio 2.68 while still disarmed). Increased only the disarmed rearm override from 2.5× to 4× and updated diagnostics; ordinary armed onsets retain their existing rise/contrast requirements. Both simple loops now have exactly eight groups across all ten alignments. Existing flam, 40 ms softer-follow-up and slow/ongoing-rumble tests pass. Every previously reviewed render retains its expected full-file experimental count, without kick duplicates.
+
+Sensitivity tradeoff is explicit: clear faint transient probes that the previous default rejected are now accepted as low-level onsets. They cannot be classified as unintentional noise from amplitude alone. Conservative-profile recovery/silence tests now select 0.006 explicitly and continue to enforce their original behavior; added default-profile tests verify all nine clear transient events in that synthetic fixture. Device/acoustic-room accuracy is still unverified.
+
+Every dynamic-loop detection using the separate startup bypass: 1.1 0.001315 (+1.315 ms); 1.3 0.252313 (+2.313); 2.1 0.500590 (+0.590); 2.3 0.752313 (+2.313); 3.1 1.001837 (+1.837); 3.3 1.252313 (+2.313); 4.1 1.500590 (+0.590); 4.3 1.752313 (+2.313). No extras or missed expected groups. File-zero grid is assumed. Without startup bypass the retained detector finds seven (first-sample gate remains unchanged).
+
+Validation: 246 tests passed, 21 device/tooling-gated skipped; typecheck, production build and Java/Swift host onset/waveform parity pass. Native parity now includes both supplied loops at two sample alignments plus sensitive low-level synthetic attacks. An initial full-suite run alongside the build timed out in one import test; the subsequent full suite run independently passes. Native apps were not synced/rebuilt/device-tested.
+
+Complete before/after detections: `output/audio-validation/quiet-onset-fix/results.json`. Changes are retained locally, not committed or pushed. Next: user feedback on this sensitive default before progressing to more complex material.

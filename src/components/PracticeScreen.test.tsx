@@ -193,7 +193,7 @@ it('reveals candidate decisions accessibly and commits detector controls separat
   expect(screen.getByText(/Start sensitivity only gates live acquisition/)).toBeDefined()
   fireEvent.click(screen.getAllByRole('button', { name: /Inspect candidate/ })[0])
   expect(screen.getByText('Detector rejected')).toBeDefined()
-  expect(screen.getByText(/level,.*contrast/)).toBeDefined()
+  expect(screen.getByText(/rise,.*contrast/)).toBeDefined()
   const control = screen.getByRole('spinbutton', { name: 'Minimum level' })
   fireEvent.change(control, { target: { value: '0.02' } })
   fireEvent.blur(control)

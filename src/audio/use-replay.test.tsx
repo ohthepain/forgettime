@@ -230,7 +230,7 @@ it('restarts a selected replay with real detector settings while preserving its 
   expect(result.current.replayState!.settings).toMatchObject({ version: 1, minimumRms: 0.1, contrastRatio: 4 })
   expect(result.current.replayState!.onsets).toEqual([])
   await act(() => result.current.resetDetector())
-  expect(result.current.detectorSettings).toMatchObject({ version: 1, minimumRms: 0.006, contrastRatio: 1.8, minSeparationMs: 18, recoverySeconds: 4 })
+  expect(result.current.detectorSettings).toMatchObject({ version: 1, minimumRms: 0.002, contrastRatio: 1.8, minSeparationMs: 18, recoverySeconds: 4 })
   advance(2.8)
   expect(result.current.replayState!.onsets).toEqual(defaultOnsets)
 })

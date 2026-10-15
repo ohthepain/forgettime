@@ -85,7 +85,7 @@ final class DrumOnsetDetector {
         var reasons: [String] = []
         if !backgroundReady { reasons.append("warming-up") }
         if elapsed < settings.minSeparationMs / 1000 { reasons.append("separation") }
-        if !armed && ratio < 2.5 { reasons.append("rearming") }
+        if !armed && ratio < 4 { reasons.append("rearming") }
         if rms < minimumLevel { reasons.append("level") }
         if rise < 0.002 || ratio < 1.55 { reasons.append("rise") }
         if contrast < settings.contrastRatio { reasons.append("contrast") }
@@ -99,7 +99,7 @@ final class DrumOnsetDetector {
                 "rms": rms, "minimumLevel": minimumLevel, "levelReference": levelReference,
                 "rise": rise, "minimumRise": 0.002, "ratio": ratio, "minimumRatio": 1.55,
                 "contrast": contrast, "minimumContrast": settings.contrastRatio,
-                "backgroundRms": backgroundRms, "baselineRms": effectiveBaseline, "armed": armed, "rearmRatio": 2.5,
+                "backgroundRms": backgroundRms, "baselineRms": effectiveBaseline, "armed": armed, "rearmRatio": 4,
                 "elapsedMs": elapsed.isFinite ? elapsed * 1000 : NSNull(), "minimumSeparationMs": settings.minSeparationMs
             ]
             let candidate: [String: Any] = ["version": 1, "id": nextCandidateId, "time": onsetTime,
@@ -135,7 +135,7 @@ struct DetectorSettings {
             guard let number = supplied as? Double, number.isFinite else { throw DetectorSettingsError.invalid }
             return min(upper, max(lower, number))
         }
-        minimumRms = try value("minimumRms", 0.006, 0.001, 0.1)
+        minimumRms = try value("minimumRms", 0.002, 0.001, 0.1)
         contrastRatio = try value("contrastRatio", 1.8, 1.1, 4)
         minSeparationMs = try value("minSeparationMs", 18, 8, 100)
         recoverySeconds = try value("recoverySeconds", 4, 0.25, 12)

@@ -164,7 +164,9 @@ export class OnsetDetector {
     if (!backgroundReady) reasons.push('warming-up');
 
     if (elapsed < this.settings.minSeparationMs / 1000) reasons.push('separation');
-    if (!this.armed && ratio < 2.5) reasons.push('rearming');
+    // While the smoothed body is still active, only a much clearer new edge
+    // may bypass rearming. A modest later kick-body rise remains the same hit.
+    if (!this.armed && ratio < 4) reasons.push('rearming');
     if (rms < minimumLevel) reasons.push('level');
     if (rise < 0.002 || ratio < 1.55) reasons.push('rise');
     if (contrast < this.settings.contrastRatio) reasons.push('contrast');
@@ -181,7 +183,7 @@ export class OnsetDetector {
         strength: Math.min(1, peak), confidence, accepted: !reasons.length, reasons, settings: { ...this.settings },
         measurements: { rms, minimumLevel, levelReference: this.levelReference, rise, minimumRise: 0.002,
           ratio, minimumRatio: 1.55, contrast, minimumContrast: this.settings.contrastRatio,
-          backgroundRms, baselineRms: effectiveBaseline, armed: this.armed, rearmRatio: 2.5,
+          backgroundRms, baselineRms: effectiveBaseline, armed: this.armed, rearmRatio: 4,
           elapsedMs: Number.isFinite(elapsed) ? elapsed * 1000 : null, minimumSeparationMs: this.settings.minSeparationMs } };
       if (this.diagnostics.length < MAX_DIAGNOSTIC_CANDIDATES) this.diagnostics.push(candidate);
       else this.diagnosticsDropped++;

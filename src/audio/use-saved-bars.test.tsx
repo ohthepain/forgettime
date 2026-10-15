@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { Capacitor } from '@capacitor/core'
 import { usePractice } from './use-practice'
 import { OnsetDetector } from './onset-detector'
+import { DEFAULT_DETECTOR_SETTINGS } from './detector-contract'
 import type { CaptureCallbacks } from './capture'
 import type { SavedBarRecord, SavedBarRepository } from './saved-bars'
 const hardware = vi.hoisted(() => ({ capture: vi.fn() }))
@@ -90,7 +91,7 @@ it('keeps originals and truncated diagnostics after tuning, and retains a saved 
   first.unmount()
   const reopened = renderHook(() => usePractice(80, 'auto', 50, undefined, { savedBars: repository, exportFile: async () => { throw new Error('Download cancelled.') } }))
   await act(() => reopened.result.current.openSavedBar(id))
-  expect(reopened.result.current.recordedTake!.settings.detector!.minimumRms).toBe(.006)
+  expect(reopened.result.current.recordedTake!.settings.detector!.minimumRms).toBe(DEFAULT_DETECTOR_SETTINGS.minimumRms)
   expect(reopened.result.current.recordedTake!.diagnostics!.dropped).toBe(19)
   expect(reopened.result.current.recordedTake!.analysis).toEqual({ implementation: 'forgettime-onset', version: '1' })
   expect(reopened.result.current.recordedTake!.diagnostics!.candidates.length).toBeGreaterThan(0)
