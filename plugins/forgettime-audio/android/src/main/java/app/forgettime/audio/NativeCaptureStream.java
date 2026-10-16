@@ -18,6 +18,11 @@ public final class NativeCaptureStream {
     private final int sampleRate;
     private final DrumOnsetDetector detector;
     private final WaveformEnvelopeCapture waveform;
+    private double inputGain = 1;
+    public synchronized void setInputGain(double gain) {
+        if (!Double.isFinite(gain) || gain < 0.25 || gain > 8) throw new IllegalArgumentException("Invalid microphone gain.");
+        inputGain = gain;
+    }
     private long frame;
     private long acknowledgedFrame;
 
@@ -39,7 +44,7 @@ public final class NativeCaptureStream {
         Batch batch = new Batch(frame, count);
         double energy = 0;
         for (int i = 0; i < count; i++) {
-            double sample = input[i] / 32768.0;
+            double sample = (float) (input[i] / 32768.0 * inputGain);
             batch.samples[i] = sample;
             energy += sample * sample;
             double time = (frame + i) / (double) sampleRate;

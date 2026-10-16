@@ -1,3 +1,4 @@
+import { amplifyMicrophone, normalizeInputGain } from './input-gain'
 import { type DetectorSettings, type DetectorDiagnostics } from './detector-contract'
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core'
 import { ForgettimeAudio, type NativeAudioFrame } from 'forgettime-audio'
@@ -10,6 +11,7 @@ import { BrowserOutputAlignment, browserLatencyEstimate, type BrowserLatencyEsti
 export interface CaptureInfo {
   /** Actual detector implementation, absent for older unknown native versions. */
   analysis?: { implementation: string; version: string }
+  inputGainSupported?: boolean
   diagnosticsSupported?: boolean
   source: 'native' | 'web'
   sampleRate: number
@@ -51,11 +53,13 @@ export interface AudioCapture {
   start: () => Promise<CaptureInfo>
   stop: () => Promise<void>
   setMetronome: (plan: MetronomePlan | null) => void
+  setInputGain?: (gain: number) => void
   setDetectorSettings?: (settings: DetectorSettings) => void
 }
 
 /** Foreground-only live capture. Native builds require the native plugin. */
-export function createAudioCapture(callbacks: CaptureCallbacks, options: { deviceId?: string; detectorSettings?: DetectorSettings } = {}): AudioCapture {
+export function createAudioCapture(callbacks: CaptureCallbacks, options: { deviceId?: string; detectorSettings?: DetectorSettings; inputGain?: number } = {}): AudioCapture {
+  let inputGain = normalizeInputGain(options.inputGain ?? 1)
   let generation = 0
   let running = false
   let starting: Promise<CaptureInfo> | undefined
@@ -223,8 +227,9 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
           ensureCurrent()
           // Set before awaiting, so stop() can cancel a native permission request.
           nativeStarted = true
-          const nativeInfo = await ForgettimeAudio.start({ detectorSettings: options.detectorSettings })
+          const nativeInfo = await ForgettimeAudio.start({ detectorSettings: options.detectorSettings, inputGain })
           ensureCurrent()
+          if (inputGain !== 1 && !nativeInfo.inputGainSupported) throw new Error('Microphone gain requires an updated native audio plugin. Rebuild and sync the app.')
           if (!nativeInfo.sessionId) throw new Error('This native audio plugin cannot retain recordings. Rebuild and sync the native app.')
           nativeSessionId = nativeInfo.sessionId
           nativeSession = nativeInfo.sessionId
@@ -275,7 +280,8 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
           worklet.port.onmessage = (event: MessageEvent<WorkletMessage>) => {
             if (!current()) return
             if (event.data.type === 'gap') { resetInput(); return }
-            const { samples, startFrame, sampleRate } = event.data
+            const { startFrame, sampleRate } = event.data
+            const samples = amplifyMicrophone(event.data.samples, inputGain)
             if (acquiredStream.getAudioTracks().some(track => track.muted)) return
             if (expectedFrame !== undefined && Math.abs(expectedFrame - startFrame) > 2) {
               // Keep listening, but never score a new clock against an old beat.
@@ -362,7 +368,19 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
     void send()
   }
 
-  return { start, stop, setMetronome, setDetectorSettings: settings => {
+  return { start, stop, setMetronome, setInputGain: value => {
+    inputGain = normalizeInputGain(value)
+    if (Capacitor.isNativePlatform() && nativeSessionId) {
+      const sessionId = nativeSessionId
+      if (!info?.inputGainSupported || typeof ForgettimeAudio.setInputGain !== 'function') {
+        fail(new Error('Microphone gain requires an updated native audio plugin. Rebuild and sync the app.'))
+        return
+      }
+      void ForgettimeAudio.setInputGain({ sessionId, inputGain }).catch(error => {
+        if (sessionId === nativeSessionId) fail(error instanceof Error ? error : new Error('Microphone gain could not be applied. Update the native app.'))
+      })
+    }
+  }, setDetectorSettings: settings => {
     if (Capacitor.isNativePlatform()) {
       if (!nativeSessionId || !info?.diagnosticsSupported) throw new Error('Native detector tuning requires an updated audio plugin.')
       const sessionId = nativeSessionId

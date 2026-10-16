@@ -54,7 +54,8 @@ export interface NativeFilePlugin {
   exportSavedBar(options: { id: string }): Promise<{ status: 'presented' | 'cancelled' }>;
 }
 export interface ForgettimeAudioPlugin extends NativeFilePlugin {
-  start(options?: { detectorSettings?: NativeDetectorSettings }): Promise<{ sessionId?: string; sampleRate: number; timestampQuality: 'hardware' | 'sample-clock'; diagnosticsSupported?: boolean; analysis?: { implementation: string; version: string } }>;
+  start(options?: { detectorSettings?: NativeDetectorSettings; inputGain?: number }): Promise<{ sessionId?: string; sampleRate: number; timestampQuality: 'hardware' | 'sample-clock'; inputGainSupported?: boolean; diagnosticsSupported?: boolean; analysis?: { implementation: string; version: string } }>;
+  setInputGain(options: { sessionId: string; inputGain: number }): Promise<void>;
   setDetectorSettings(options: { sessionId: string; detectorSettings: NativeDetectorSettings }): Promise<void>;
   startReplay(options: { sessionId: string; sampleRate: number; samples: number[]; detectorSettings: NativeDetectorSettings }): Promise<{ sessionId: string; sampleRate: number; frameCount: number; diagnosticsSupported: boolean }>;
   readReplay(options: { sessionId: string }): Promise<NativeReplayFrame>;

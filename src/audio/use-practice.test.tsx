@@ -144,7 +144,7 @@ describe('live timing integration', () => {
     expect(result.current.recordedTake).toBe(take)
   })
 
-  it('retains original detector candidates separately from acquisition gating and live settings edits', async () => {
+  it('retains original candidates and prevents replay tuning from changing live defaults', async () => {
     const { result } = renderHook(() => usePractice(120, 'straight', 0))
     await act(() => result.current.listen('auto'))
     const detector = new OnsetDetector()
@@ -160,9 +160,11 @@ describe('live timing integration', () => {
         callbacks.onFrame({ ...info, time: detector.processedThrough ?? 0, level: 0, onsets, pcm: { startFrame, samples }, diagnostics: detector.drainDiagnostics() })
       }
     })
-    expect(result.current.liveDiagnostics.candidates.some(candidate => candidate.accepted && candidate.acquisition === 'below-start-level')).toBe(true)
+    expect(result.current.liveDiagnostics.candidates.some(candidate => candidate.accepted && candidate.acquisition === 'started')).toBe(true)
     const origin = result.current.snapshot.phaseOrigin
-    await act(() => result.current.configureDetector({ minSeparationMs: 100 }))
+    await act(() => result.current.configureSensitivity(90))
+    expect(result.current.detectorSettings.minSeparationMs).toBe(18)
+    expect(result.current.detectionSensitivity).toBe(50)
     expect(result.current.snapshot.phaseOrigin).toBe(origin)
     await act(() => result.current.stop())
     const take = result.current.recordedTake!
@@ -375,26 +377,24 @@ describe('live timing integration', () => {
     expect(stopCapture).not.toHaveBeenCalled()
   })
 
-  it('applies an edited sensitivity to waiting capture without reopening the mic or moving a live beat', async () => {
-    const { result, rerender } = renderHook(({ sensitivity }) => usePractice(120, 'auto', sensitivity), { initialProps: { sensitivity: 0 } })
+  it('changes microphone gain without reopening capture or moving its reference', async () => {
+    const setInputGain = vi.fn()
+    mocked.create.mockImplementation((value: CaptureCallbacks) => {
+      callbacks = value
+      return { start: vi.fn().mockResolvedValue(info), stop: stopCapture, setMetronome, setInputGain }
+    })
+    const { result, rerender } = renderHook(({ gain }) => usePractice(120, 'auto', gain), { initialProps: { gain: 1 } })
     await act(() => result.current.listen())
-    const quiet = (time: number) => callbacks.onFrame({ ...info, time, level: 0.03, onsets: [{ time, strength: 0.08, confidence: 0.9 }] })
-    act(() => quiet(100))
-    expect(result.current.snapshot.status).toBe('listening')
-    rerender({ sensitivity: 100 })
-    act(() => quiet(101))
-    expect(result.current.snapshot).toMatchObject({ status: 'playing', beat: 1, phaseOrigin: 101 })
-    rerender({ sensitivity: 0 })
-    act(() => { quiet(101.5); frame(101.75) })
-    expect(result.current.snapshot.phaseOrigin).toBe(101)
-    expect(result.current.snapshot.hits).toHaveLength(0)
-    expect(result.current.waveform.hits.map(hit => hit.time)).not.toContain(101.5)
-    await act(() => frame(103))
-    expect(stopCapture).toHaveBeenCalled()
+    act(() => frame(100, [100]))
+    rerender({ gain: 2 })
+    expect(setInputGain).toHaveBeenLastCalledWith(2)
+    act(() => frame(100.5, [100.5]))
+    expect(result.current.snapshot.phaseOrigin).toBe(100)
     expect(mocked.create).toHaveBeenCalledOnce()
+    expect(stopCapture).not.toHaveBeenCalled()
   })
 
-  it.each(['web', 'native'] as const)('filters live %s PCM triggers from scoring, recorded onsets and waveform without extending Auto silence', async source => {
+  it.each(['web', 'native'] as const)('accepts detector-approved quiet %s attacks and measures Auto silence from the last accepted attack', async source => {
     const detector = new OnsetDetector()
     const rate = 48000
     const samples = new Float32Array(rate * 3)
@@ -403,19 +403,20 @@ describe('live timing integration', () => {
     }
     const onsets = detector.process(samples, 0, rate)
     expect(onsets).toHaveLength(4) // Detector attempts remain available for inspection.
-    const { result } = renderHook(() => usePractice(120, 'straight', 25))
+    const { result } = renderHook(() => usePractice(120, 'straight', 1))
     await act(() => result.current.listen('auto'))
     act(() => callbacks.onFrame({ ...info, source, time: 3, level: 0, onsets,
       pcm: { startFrame: 0, samples }, diagnostics: detector.drainDiagnostics() }))
-    expect(result.current.snapshot).toMatchObject({ status: 'playing', phaseOrigin: onsets[0].time, lastHitTime: onsets[2].time })
-    expect(result.current.waveform.hits.map(hit => hit.time)).not.toContain(onsets[3].time)
-    const rejected = result.current.liveDiagnostics.candidates.filter(candidate => candidate.acquisition === 'below-start-level')
-    expect(rejected).toHaveLength(2)
-    act(() => callbacks.onFrame({ ...info, source, time: 3.2, level: 0, onsets: [], pcm: { startFrame: samples.length, samples: new Float32Array(rate * .2) } }))
+    expect(result.current.snapshot).toMatchObject({ status: 'playing', phaseOrigin: onsets[0].time, lastHitTime: onsets[3].time })
+    expect(result.current.waveform.hits.map(hit => hit.time)).toContain(onsets[3].time)
+    expect(result.current.liveDiagnostics.candidates.filter(candidate => candidate.acquisition === 'below-start-level')).toHaveLength(0)
+    act(() => callbacks.onFrame({ ...info, source, time: 4.59, level: 0, onsets: [] }))
+    expect(result.current.snapshot.status).toBe('playing')
+    act(() => callbacks.onFrame({ ...info, source, time: 4.6, level: 0, onsets: [] }))
     expect(result.current.snapshot.status).toBe('paused')
-    expect(result.current.recordedTake?.onsets.map(hit => hit.time)).toEqual([onsets[0].time, onsets[2].time])
-    expect(result.current.recordedTake?.diagnostics?.candidates.filter(candidate => candidate.acquisition === 'below-start-level')).toHaveLength(2)
-    expect(stopCapture).not.toHaveBeenCalled() // Auto keeps listening, not a noise-extended take.
+    expect(result.current.recordedTake?.onsets.map(hit => hit.time)).toEqual(onsets.map(hit => hit.time))
+    expect(stopCapture).not.toHaveBeenCalled() // Auto keeps listening after the take ends.
+
   })
 
   it('ignores stale frames and a delayed permission success after stop', async () => {
@@ -453,4 +454,17 @@ describe('live timing integration', () => {
     await act(() => result.current.stop())
     expect(result.current.source).toBe('off')
   })
+
+  it('keeps imported/replay tuning out of the next live detector and sends microphone gain separately', async () => {
+    const { result } = renderHook(() => usePractice(120, 'auto', 2))
+    await act(() => result.current.configureSensitivity(0))
+    expect(result.current.detectorSettings.minimumRms).toBe(.04)
+    await act(() => result.current.listen())
+    expect(mocked.create).toHaveBeenLastCalledWith(expect.any(Object), expect.objectContaining({
+      inputGain: 2, detectorSettings: expect.objectContaining({ minimumRms: .002, contrastRatio: 1.8 }),
+    }))
+    expect(result.current.detectionSensitivity).toBe(0)
+    await act(() => result.current.stop())
+  })
+
 })

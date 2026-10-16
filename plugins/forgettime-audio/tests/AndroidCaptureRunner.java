@@ -27,6 +27,14 @@ public class AndroidCaptureRunner {
             stalled.acknowledge(block.length);
             require(stalled.process(block, block.length).startFrame == rate / 2, "Acknowledgement releases capacity without moving the sample clock");
         }
+        NativeCaptureStream amplified = new NativeCaptureStream(48000);
+        amplified.setInputGain(2);
+        NativeCaptureStream.Batch loud = amplified.process(new short[] {16384, -16384, 30000}, 3);
+        require(loud.samples[0] == 1 && loud.samples[1] == -1 && loud.samples[2] > 1, "Gain is multiplied into retained Float32 PCM without clipping");
+        amplified.acknowledge(3);
+        amplified.setInputGain(0.5);
+        NativeCaptureStream.Batch quiet = amplified.process(new short[] {16384}, 1);
+        require(quiet.startFrame == 3 && quiet.samples[0] == 0.25 && loud.samples[0] == 1, "Gain changes only future PCM without resetting the clock");
         System.out.println("Android PCM source, sample clock and bounded bridge contracts passed");
     }
     private static void fixture(int rate) {

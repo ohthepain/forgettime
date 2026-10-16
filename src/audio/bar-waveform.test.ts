@@ -138,7 +138,7 @@ describe('one-bar circular waveform', () => {
       engine.addOnset(onset)
       buffer.addFrame(time + 0.01, [point(time, 0.8)], [onset], engine.snapshot(time + 0.01))
     }
-    const quiet = hit(16.01, 0.03)
+    const quiet = { ...hit(16.01, 0.03), confidence: 0.4 }
     engine.addOnset(quiet)
     const paused = engine.snapshot(16.02)
     expect(paused.status).toBe('paused')

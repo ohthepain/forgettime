@@ -1,9 +1,12 @@
+import { DEFAULT_INPUT_GAIN, normalizeInputGain } from '../audio/input-gain'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { InterpretationMode } from '../audio/engine'
 import { DEFAULT_START_SENSITIVITY, normalizeStartSensitivity } from '../audio/start-sensitivity'
 import { DEFAULT_METRONOME, normalizeHelpThreshold, type MetronomeMode } from '../audio/metronome'
 interface Preferences {
+  inputGain: number
+  setInputGain: (gain: number) => void
   bpm: number
   mode: InterpretationMode
   startSensitivity: number
@@ -18,6 +21,8 @@ interface Preferences {
   setStartSensitivity: (sensitivity: number) => void
 }
 export const usePreferences = create<Preferences>()(persist((set) => ({
+  inputGain: DEFAULT_INPUT_GAIN,
+  setInputGain: value => set({ inputGain: normalizeInputGain(value) }),
   bpm: 100,
   mode: 'auto',
   startSensitivity: DEFAULT_START_SENSITIVITY,
@@ -35,6 +40,7 @@ export const usePreferences = create<Preferences>()(persist((set) => ({
   merge: (stored, current) => {
     const value = (stored ?? {}) as Partial<Preferences>
     return { ...current,
+      inputGain: normalizeInputGain(value.inputGain ?? DEFAULT_INPUT_GAIN),
       metronomeEnabled: typeof value.metronomeEnabled === 'boolean' ? value.metronomeEnabled : current.metronomeEnabled,
       metronomeMode: ['first-bar', 'always', 'need-help'].includes(value.metronomeMode ?? '') ? value.metronomeMode! : current.metronomeMode,
       helpThresholdMs: typeof value.helpThresholdMs === 'number' && Number.isFinite(value.helpThresholdMs) && value.helpThresholdMs >= 20 && value.helpThresholdMs <= 200

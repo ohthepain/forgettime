@@ -20,11 +20,31 @@ it('holds for Auto without also starting a single take and cancels interrupted h
   act(() => vi.advanceTimersByTime(700))
   expect(listen).not.toHaveBeenCalled()
 })
-it('exposes persisted start sensitivity without activating capture', () => {
+it('exposes persisted microphone gain without activating capture', () => {
   const listen = vi.fn(async () => {})
   render(<RecordControl active={false} auto={false} busy={false} disabled={false} stopLabel="Stop listening" listen={listen} stop={vi.fn(async () => {})} />)
   fireEvent.click(screen.getByRole('button', { name: 'Recording options' }))
-  fireEvent.change(screen.getByRole('slider', { name: 'Sensitivity' }), { target: { value: '15' } })
-  expect(usePreferences.getState().startSensitivity).toBe(15)
+  fireEvent.change(screen.getByRole('slider', { name: 'Input gain' }), { target: { value: '2' } })
+  expect(usePreferences.getState().inputGain).toBe(2)
   expect(listen).not.toHaveBeenCalled()
+})
+
+it('places microphone selection inside recording options without starting capture', () => {
+  const select = vi.fn(), listen = vi.fn(async () => {})
+  const props = { active: false, auto: false, busy: false, disabled: false, stopLabel: 'Stop listening', listen, stop: vi.fn(async () => {}), microphone: { devices: [{ deviceId: 'usb', label: 'USB microphone' }], deviceId: '', select } }
+  const { rerender, container } = render(<RecordControl {...props} />)
+  expect(screen.queryByRole('combobox')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Recording options' }))
+  const control = screen.getByRole('combobox', { name: 'MICROPHONE' }) as HTMLSelectElement
+  expect(container.querySelector('#recording-options')?.contains(control)).toBe(true)
+  fireEvent.change(control, { target: { value: 'usb' } })
+  expect(select).toHaveBeenCalledWith('usb')
+  expect(listen).not.toHaveBeenCalled()
+  rerender(<RecordControl {...props} active microphone={{ ...props.microphone, deviceId: 'missing' }} />)
+  expect(control.disabled).toBe(true)
+  expect(screen.getByRole('option', { name: 'Selected microphone (unavailable)' })).toBeDefined()
+  rerender(<RecordControl {...props} busy />)
+  expect(control.disabled).toBe(true)
+  rerender(<RecordControl {...props} microphone={undefined} />)
+  expect(screen.queryByRole('combobox')).toBeNull()
 })

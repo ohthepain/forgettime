@@ -4,7 +4,7 @@ import { DEFAULT_START_SENSITIVITY, normalizeStartSensitivity, startingStrength 
 export type InterpretationMode = 'auto' | 'straight' | 'swing';
 export type Subdivision = 'quarter' | 'eighth' | 'sixteenth' | 'triplet' | 'sextuplet';
 export type TrackingStatus = 'idle' | 'listening' | 'playing' | 'paused';
-export interface TimingOptions { bpm: number; mode?: InterpretationMode; startSensitivity?: number }
+export interface TimingOptions { bpm: number; mode?: InterpretationMode; /** Legacy explicit gate for older integrations. */ startSensitivity?: number; liveMinimumStrength?: number }
 export interface ResolvedHit {
   id: number;
   time: number;
@@ -47,6 +47,7 @@ export class TimingEngine {
   private bpm: number;
   private mode: InterpretationMode;
   private startSensitivity: number;
+  private liveMinimumStrength?: number;
   private status: TrackingStatus = 'idle';
   private phaseOrigin: number | null = null;
   private lockConfidence = 0;
@@ -60,6 +61,7 @@ export class TimingEngine {
 
   constructor(options: TimingOptions, private readonly onResolved?: (hit: ResolvedHit) => void) {
     this.assertBpm(options.bpm);
+    this.liveMinimumStrength = options.liveMinimumStrength ?? (options.startSensitivity === undefined ? 0 : undefined);
     this.bpm = options.bpm;
     this.mode = options.mode ?? 'auto';
     this.startSensitivity = normalizeStartSensitivity(options.startSensitivity ?? DEFAULT_START_SENSITIVITY);
@@ -109,7 +111,7 @@ export class TimingEngine {
     // One shared live gate for browser and native onsets. Rejected noise cannot
     // score, influence rhythm interpretation, or extend the silence deadline.
     // Replay has its own detector controls and bypasses this live input gate.
-    if (!this.replay && onset.strength < startingStrength(this.startSensitivity)) return;
+    if (!this.replay && onset.strength < (this.liveMinimumStrength ?? startingStrength(this.startSensitivity))) return;
     if (this.status === 'listening' || this.status === 'paused') {
       if (onset.confidence < 0.55) return;
       this.clearPerformance();

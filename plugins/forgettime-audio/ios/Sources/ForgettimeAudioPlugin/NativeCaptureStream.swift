@@ -19,6 +19,11 @@ final class NativeCaptureStream {
     private var originSample: Int64?
     private var nextSample: Int64?
     private let deliveryLock = NSLock()
+    private var inputGain: Double = 1
+    func setInputGain(_ gain: Double) throws {
+        guard gain.isFinite, gain >= 0.25, gain <= 8 else { throw CaptureFailure.discontinuity }
+        deliveryLock.lock(); inputGain = gain; deliveryLock.unlock()
+    }
     private var acknowledgedFrame: Int64 = 0
     private var sentEndFrame: Int64 = 0
 
@@ -47,6 +52,7 @@ final class NativeCaptureStream {
         if originSample == nil { originSample = sampleTime }
         let start = sampleTime - originSample!
         deliveryLock.lock()
+        let gain = inputGain
         let endFrame = start + Int64(frameCount)
         let overflow = endFrame - acknowledgedFrame > Int64(self.sampleRate * 0.5)
         if !overflow { sentEndFrame = endFrame }
@@ -60,7 +66,7 @@ final class NativeCaptureStream {
         for frame in 0..<frameCount {
             var sum = 0.0
             for channel in 0..<channelCount { sum += Double(sampleAt(channel, frame)) }
-            let mono = Float(sum / Double(channelCount))
+            let mono = Float(Double(Float(sum / Double(channelCount))) * gain)
             guard mono.isFinite else { throw CaptureFailure.discontinuity }
             pcm.append(mono)
             let sample = Double(mono)

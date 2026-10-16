@@ -94,3 +94,13 @@ let candidate = (accepted.diagnostics["candidates"] as! [[String: Any]])[0]
 precondition(candidate["id"] as! Int == 2)
 precondition((candidate["settings"] as! [String: Any])["minimumRms"] as! Double == 0.001)
 print("Swift live settings change actual detection without resetting the source clock or candidate history")
+
+let amplified = NativeCaptureStream(sampleRate: 48000, sessionId: "gain")
+try amplified.setInputGain(2)
+let loud = try amplified.process(frameCount: 3, sampleTime: 100, sampleRate: 48000, channelCount: 1) { _, frame in [Float(0.5), -0.5, 0.75][frame] }
+precondition(loud.samples == [1, -1, 1.5])
+amplified.acknowledge(sessionId: "gain", endFrame: 3)
+try amplified.setInputGain(0.5)
+let quiet = try amplified.process(frameCount: 1, sampleTime: 103, sampleRate: 48000, channelCount: 1) { _, _ in 0.5 }
+precondition(quiet.startFrame == 3 && quiet.samples == [0.25] && loud.samples == [1, -1, 1.5])
+print("Swift microphone gain changes future retained PCM without clipping or resetting the source clock")

@@ -1,9 +1,8 @@
-import { DETECTOR_CONTROLS, type DetectorSettingKey, type DetectorSettings, type ReviewedCandidate } from '../audio/detector-contract'
+import { type DetectorSettings, type ReviewedCandidate } from '../audio/detector-contract'
 export interface InspectableCandidate extends ReviewedCandidate { position?: number; uncertain?: boolean; iteration?: number }
 const configuration = (settings: DetectorSettings) => `${settings.minimumRms} RMS · ${settings.contrastRatio}× contrast · ${settings.minSeparationMs} ms separation · ${settings.recoverySeconds} s recovery`
-export function DetectionDetails({ open, toggle, settings, originalSettings, supported, configure, reset, candidates, selected, select, page, setPage, dropped, diagnosticsSupported, context }: {
-  open: boolean; toggle: () => void; settings: DetectorSettings; originalSettings?: DetectorSettings; supported: boolean
-  configure: (patch: Partial<DetectorSettings>) => void; reset: () => void
+export function DetectionDetails({ open, toggle, settings, originalSettings, candidates, selected, select, page, setPage, dropped, diagnosticsSupported, context }: {
+  open: boolean; toggle: () => void; settings: DetectorSettings; originalSettings?: DetectorSettings
   candidates: InspectableCandidate[]; selected: InspectableCandidate | null; select: (candidate: InspectableCandidate) => void
   page: number; setPage: (page: number) => void; dropped: number; diagnosticsSupported: boolean; context: string
 }) {
@@ -14,21 +13,8 @@ export function DetectionDetails({ open, toggle, settings, originalSettings, sup
   return <section className="detection-details">
     <button className="detection-toggle" aria-expanded={open} aria-controls="detection-details-content" onClick={toggle}>Detection details</button>
     {open && <div id="detection-details-content">
-      <p className="waveform-note">Sensitivity gates every live trigger. Dashed waveform guides show the live peak threshold; replay uses the separate Detector controls.</p>
-      <fieldset disabled={!supported} aria-label="Detector controls"><legend>Detector controls</legend>
-        {(Object.keys(DETECTOR_CONTROLS) as DetectorSettingKey[]).map(key => {
-          const control = DETECTOR_CONTROLS[key]
-          return <label key={key}>{control.label}<span>{control.unit} · {control.min}–{control.max}</span>
-            <input key={settings[key]} aria-label={control.label} type="number" min={control.min} max={control.max} step={control.step} defaultValue={settings[key]}
-              onBlur={event => { const value = Number(event.currentTarget.value); if (event.currentTarget.value && Number.isFinite(value)) { const bounded = Math.min(control.max, Math.max(control.min, value)); event.currentTarget.value = String(bounded); configure({ [key]: bounded }) } else event.currentTarget.value = String(settings[key]) }}
-              onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} />
-          </label>
-        })}
-        <button type="button" onClick={reset}>Reset detector defaults</button>
-      </fieldset>
-      {!supported && <p className="capture-notice">Native detector tuning and diagnostics require an updated audio plugin.</p>}
-      <p className="waveform-note">Current: {supported ? configuration(settings) : 'native settings unavailable'}.<br />Original: {originalSettings ? configuration(originalSettings) : 'configuration not available'}.</p>
-      <p className="waveform-note">Apply an edit with Enter or by leaving the field. Replay starts fresh; live edits preserve the active beat and detector history. Original candidates retain the settings used for each decision.</p>
+      <p className="waveform-note">Tune import and replay with Detection sensitivity in the imported-audio section. Live capture uses the shared detector defaults.</p>
+      <p className="waveform-note">Current: {configuration(settings)}.<br />Original: {originalSettings ? configuration(originalSettings) : 'configuration not available'}.</p>
       <p className="small-label">{context}</p>
       {!diagnosticsSupported ? <p className="waveform-note">Candidate diagnostics were not supplied for this source.</p> : <>
         {dropped > 0 && <p className="capture-notice" role="status">Diagnostics incomplete · {dropped} candidates omitted at the storage limit.</p>}

@@ -23,6 +23,7 @@ function practice(): ReturnType<typeof usePractice> {
     beginImport: vi.fn(), cancelImport: vi.fn(), importFiles: vi.fn(), chooseImportFiles: vi.fn(), useImportAudioOnly: vi.fn(), confirmImport: vi.fn(),
     savedBars: [], savedBarsSupported: true, libraryBusy: false, libraryError: null, libraryNotice: null,
     exportSavedPair: vi.fn(), pairedExportSupported: false, saveSelectedBar: vi.fn(), openSavedBar: vi.fn(), exportSavedFile: vi.fn(), openRecordedMaterial: vi.fn(),
+    detectionSensitivity: 50, configureSensitivity: vi.fn(),
     detectorSettings: { ...DEFAULT_DETECTOR_SETTINGS }, configureDetector: vi.fn(), resetDetector: vi.fn(), detectorSettingsSupported: true, liveDiagnostics: { candidates: [], dropped: 0, supported: false },
     playBar: vi.fn(), restartReplay: vi.fn(), replayState: null,
     recordedTake: null, reviewBar: null, reviewBarIndex: 0, reviewBarCount: 0, recordingNotice: null,
@@ -39,7 +40,7 @@ let state: ReturnType<typeof usePractice>
 describe('practice screen integration', () => {
   beforeEach(() => {
     localStorage.clear()
-    usePreferences.setState({ bpm: 100, mode: 'auto' })
+    usePreferences.setState({ bpm: 100, mode: 'auto', inputGain: 1 })
     state = practice()
     vi.mocked(usePractice).mockImplementation(() => state)
   })
@@ -84,7 +85,7 @@ describe('practice screen integration', () => {
     render(<PracticeScreen />)
     expect((screen.getByRole('spinbutton') as HTMLInputElement).value).toBe('110')
     expect(screen.getByRole('button', { name: 'Swing / triplet' }).getAttribute('aria-pressed')).toBe('true')
-    expect(usePreferences.getState().startSensitivity).toBe(70)
+    expect(usePreferences.getState().inputGain).toBe(1)
     expect(state.listen).not.toHaveBeenCalled()
     expect(take.origin).toBe(-.000003)
   })
@@ -127,6 +128,8 @@ describe('practice screen integration', () => {
   it('lets the player select a browser input and shows which microphone is actually live', () => {
     state = { ...state, canSelectInput: true, inputDevices: [{ deviceId: 'mac', label: 'MacBook Microphone', kind: 'audioinput' } as MediaDeviceInfo] }
     const { rerender } = render(<PracticeScreen />)
+    expect(screen.queryByRole('combobox', { name: 'MICROPHONE' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Recording options' }))
     const selector = screen.getByRole('combobox', { name: 'MICROPHONE' }) as HTMLSelectElement
     fireEvent.change(selector, { target: { value: 'mac' } })
     expect(state.setDeviceId).toHaveBeenCalledWith('mac')
@@ -180,7 +183,7 @@ it('offers waveform loop playback, identifies replay, and preserves original/cur
   expect(state.stop).toHaveBeenCalled()
 })
 
-it('reveals candidate decisions accessibly and commits detector controls separately from Sensitivity', () => {
+it('reveals candidate decisions and tunes analysis through the import sensitivity popover', () => {
   const detector = new OnsetDetector()
   const pcm = new Float32Array(48000)
   for (let i = 0; i < 128; i++) pcm[4800 + i] = (i % 2 ? -0.003 : 0.003)
@@ -191,16 +194,16 @@ it('reveals candidate decisions accessibly and commits detector controls separat
   render(<PracticeScreen />)
   expect(screen.queryByRole('group', { name: 'Detector controls' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Detection details' }))
-  expect(screen.getByText(/Sensitivity gates every live trigger/)).toBeDefined()
+  expect(screen.getByText(/Live capture uses the shared detector defaults/)).toBeDefined()
   fireEvent.click(screen.getAllByRole('button', { name: /Inspect candidate/ })[0])
   expect(screen.getByText('Detector rejected')).toBeDefined()
   expect(screen.getByText(/rise,.*contrast/)).toBeDefined()
-  const control = screen.getByRole('spinbutton', { name: 'Minimum level' })
-  fireEvent.change(control, { target: { value: '0.02' } })
-  fireEvent.blur(control)
-  expect(state.configureDetector).toHaveBeenCalledWith({ minimumRms: 0.02 })
-  fireEvent.click(screen.getByRole('button', { name: 'Reset detector defaults' }))
-  expect(state.resetDetector).toHaveBeenCalled()
+  expect(screen.queryByRole('spinbutton', { name: 'Minimum level' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Detection sensitivity' }))
+  fireEvent.change(screen.getByRole('slider', { name: 'Detection sensitivity' }), { target: { value: '75' } })
+  expect(state.configureSensitivity).toHaveBeenCalledWith(75)
+  fireEvent.click(screen.getByRole('button', { name: 'Reset detection sensitivity' }))
+  expect(state.configureSensitivity).toHaveBeenLastCalledWith(50)
   expect(state.restartReplay).not.toHaveBeenCalled() // Visibility and candidate selection do not restart.
 })
 
@@ -225,4 +228,42 @@ it('keeps unavailable original analysis distinct from zero detections after unpa
     expect(screen.getByText(/Original detections unavailable/)).toBeDefined()
     expect(screen.queryByText(/0 original detected hits/)).toBeNull()
   } finally { vi.unstubAllGlobals() }
+})
+
+it('keeps metronome settings in Settings and removes capture-silence copy from the practice card', () => {
+  const prototype = HTMLDialogElement.prototype
+  const show = Object.getOwnPropertyDescriptor(prototype, 'showModal'), close = Object.getOwnPropertyDescriptor(prototype, 'close')
+  Object.defineProperty(prototype, 'showModal', { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute('open', '') } })
+  Object.defineProperty(prototype, 'close', { configurable: true, value: function (this: HTMLDialogElement) { this.removeAttribute('open') } })
+  state = practice()
+  usePreferences.setState({ metronomeEnabled: true, metronomeMode: 'first-bar', helpThresholdMs: 60 })
+  vi.mocked(usePractice).mockImplementation(() => state)
+  try {
+    const { rerender, container } = render(<PracticeScreen />)
+    expect(screen.queryByRole('button', { name: 'Metronome sound' })).toBeNull()
+    expect(container.querySelector('.capture-mode-note')).toBeNull()
+    expect(container.querySelector('.pause-note')).toBeNull()
+    expect(screen.queryByText('A full bar of silence to start fresh.')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    const dialog = screen.getByRole('dialog', { name: 'Settings' })
+    expect(within(dialog).queryByRole('slider', { name: 'Sensitivity' })).toBeNull()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Need help' }))
+    fireEvent.change(within(dialog).getByRole('slider', { name: 'Timing help threshold' }), { target: { value: '95' } })
+    expect(usePreferences.getState().metronomeMode).toBe('need-help')
+    expect(usePreferences.getState().helpThresholdMs).toBe(95)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Metronome sound' }))
+    expect(usePreferences.getState().metronomeEnabled).toBe(false)
+    expect(state.listen).not.toHaveBeenCalled()
+    state = { ...state, source: 'simulation' }
+    rerender(<PracticeScreen />)
+    expect((within(dialog).getByRole('button', { name: 'Metronome sound' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((within(dialog).getByRole('button', { name: 'Always' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close settings' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Metronome sound' })).toBeNull()
+  } finally {
+    cleanup()
+    if (show) Object.defineProperty(prototype, 'showModal', show); else Reflect.deleteProperty(prototype, 'showModal')
+    if (close) Object.defineProperty(prototype, 'close', close); else Reflect.deleteProperty(prototype, 'close')
+  }
 })

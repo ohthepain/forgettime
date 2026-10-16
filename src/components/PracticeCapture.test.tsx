@@ -134,7 +134,8 @@ it('enters review before inspecting completed Auto candidates while leaving acti
   act(() => callbacks.onFrame({ ...info, time: 3, level: 0, onsets: [], pcm: { startFrame: 48000, samples: new Float32Array(96000) } }))
   expect(screen.getByRole('button', { name: 'Auto capture' }).getAttribute('aria-pressed')).toBe('true')
   // The details panel is already open when live playing becomes review.
-  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Reset detector defaults' })))
+  fireEvent.click(screen.getByRole('button', { name: 'Detection sensitivity' }))
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Reset detection sensitivity' })))
   expect(released).toBe(true)
   expect(screen.getByRole('button', { name: 'Auto capture' }).getAttribute('aria-pressed')).toBe('false')
 })

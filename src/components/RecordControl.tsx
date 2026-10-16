@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { usePreferences } from '../lib/preferences'
 
-export function RecordControl({ active, auto, busy, disabled, stopLabel, listen, stop }: {
+export function RecordControl({ active, auto, busy, disabled, stopLabel, listen, stop, microphone }: {
   active: boolean; auto: boolean; busy: boolean; disabled: boolean; stopLabel: string
+  microphone?: { devices: Pick<MediaDeviceInfo, 'deviceId' | 'label'>[]; deviceId: string; select: (deviceId: string) => void }
   listen: (mode?: 'single' | 'auto') => Promise<void>; stop: () => Promise<void>
 }) {
   const [open, setOpen] = useState(false)
-  const { startSensitivity, setStartSensitivity } = usePreferences()
+  const { inputGain, setInputGain } = usePreferences()
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const held = useRef(false)
   const root = useRef<HTMLDivElement>(null)
@@ -37,10 +38,16 @@ export function RecordControl({ active, auto, busy, disabled, stopLabel, listen,
     <button className="record-options" aria-label="Recording options" aria-expanded={open} aria-controls="recording-options" onClick={() => setOpen(!open)}><ChevronDown size={18} /></button>
     <span id="record-hint" className="sr-only">Press to start or stop. Hold to enable Auto capture.</span>
     {open && <div id="recording-options" className="record-popover">
-      <div className="setting-label"><label htmlFor="record-sensitivity">Sensitivity</label><output htmlFor="record-sensitivity">{startSensitivity}%</output></div>
-      <input id="record-sensitivity" type="range" min={0} max={100} value={startSensitivity} onChange={event => setStartSensitivity(Number(event.target.value))} aria-describedby="record-sensitivity-note" />
-      <div className="sensitivity-scale"><span>Firmer hit</span><span>Softer hit</span></div>
-      <p id="record-sensitivity-note">Lower to reject background noise throughout playing. Raise for softer hits. Changes preserve your beat and tempo. Replay uses Detector controls.</p>
+      {microphone && <div className="microphone-control"><label className="small-label" htmlFor="microphone-input">MICROPHONE</label><select id="microphone-input" value={microphone.deviceId} disabled={busy || active} onChange={event => microphone.select(event.target.value)}>
+        <option value="">Browser default</option>
+        {microphone.devices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}
+        {microphone.deviceId && !microphone.devices.some(device => device.deviceId === microphone.deviceId) && <option value={microphone.deviceId}>Selected microphone (unavailable)</option>}
+      </select>{active && <span className="microphone-hint">Stop listening to change input</span>}</div>}
+
+      <div className="setting-label"><label htmlFor="record-input-gain">Input gain</label><output htmlFor="record-input-gain">{inputGain.toFixed(2)}×</output></div>
+      <input id="record-input-gain" type="range" min={0.25} max={8} step={0.05} value={inputGain} onChange={event => setInputGain(Number(event.target.value))} aria-describedby="record-input-gain-note" />
+      <div className="sensitivity-scale"><span>Quieter mic</span><span>Louder mic</span></div>
+      <p id="record-input-gain-note">Multiplies incoming microphone audio before detection and recording. Does not change imported audio, beat or tempo.</p>
       <button className="capture-auto" aria-label="Auto capture" aria-pressed={auto} disabled={busy || disabled || (active && !auto)} onClick={() => void (auto ? stop() : listen('auto'))}>Auto capture</button>
       <p>Hold the record button for Auto. Press to stop.</p>
     </div>}

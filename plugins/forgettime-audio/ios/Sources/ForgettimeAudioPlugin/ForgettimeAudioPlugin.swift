@@ -24,6 +24,7 @@ public final class ForgettimeAudioPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "readReplay", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopReplay", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setReplayMetronome", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setInputGain", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setDetectorSettings", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "start", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "acknowledgeFrame", returnType: CAPPluginReturnPromise),
@@ -123,6 +124,14 @@ public final class ForgettimeAudioPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    @objc public func setInputGain(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let current = self.capture, current.stream.sessionId == call.getString("sessionId") else { call.resolve(); return }
+            do { try current.stream.setInputGain(call.getDouble("inputGain") ?? 1); call.resolve() }
+            catch { call.reject(error.localizedDescription) }
+        }
+    }
+
     @objc public func setDetectorSettings(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             guard let current = self.capture, current.stream.sessionId == call.getString("sessionId") else { call.resolve(); return }
@@ -194,6 +203,7 @@ public final class ForgettimeAudioPlugin: CAPPlugin, CAPBridgedPlugin {
                 throw CaptureError.unavailableMicrophone
             }
             let current = AudioCaptureSession(engine: engine, sampleRate: format.sampleRate, settings: try DetectorSettings(call.getObject("detectorSettings") ?? [:]))
+            try current.stream.setInputGain(call.getDouble("inputGain") ?? 1)
             let outputFormat = AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: 1)!
             let clickSource = current.metronome.makeSource(format: outputFormat)
             engine.attach(clickSource)
@@ -248,7 +258,7 @@ public final class ForgettimeAudioPlugin: CAPPlugin, CAPBridgedPlugin {
             engine.prepare()
             try engine.start()
             pendingStart = nil
-            call.resolve(["sessionId": current.stream.sessionId, "sampleRate": format.sampleRate, "timestampQuality": "sample-clock", "diagnosticsSupported": true,
+            call.resolve(["sessionId": current.stream.sessionId, "sampleRate": format.sampleRate, "timestampQuality": "sample-clock", "inputGainSupported": true, "diagnosticsSupported": true,
                           "analysis": ["implementation": "forgettime-swift-onset", "version": "1"]])
         } catch {
             pendingStart = nil

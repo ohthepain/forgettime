@@ -75,10 +75,10 @@ describe('the locked musical reference', () => {
     expect(engine.snapshot(9.63).phaseOrigin).toBeCloseTo(7.13);
   });
 
-  it('ignores weak starting candidates without shifting the eventual beat-one timestamp', () => {
+  it('ignores low-confidence starting candidates without shifting beat one', () => {
     const engine = new TimingEngine({ bpm: 120 });
     engine.start(0);
-    for (const time of [0.1, 0.3, 0.8, 1.2, 2.6]) engine.addOnset({ time, strength: 0.08, confidence: 0.95 });
+    for (const time of [0.1, 0.3, 0.8, 1.2, 2.6]) engine.addOnset({ time, strength: 0.08, confidence: 0.4 });
     hit(engine, 3, 0.4);
     expect(engine.snapshot(3)).toMatchObject({ status: 'listening', phaseOrigin: null, hits: [], pendingCount: 0 });
     hit(engine, 3.21);

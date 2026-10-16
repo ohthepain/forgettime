@@ -360,3 +360,37 @@ describe('capture lifecycle and clock contract', () => {
     expect(close).toHaveBeenCalledOnce()
   })
 })
+
+it('applies microphone gain before detection, level, waveform and retained PCM without moving source frames', async () => {
+  const { port } = webAudio()
+  const frames: import('../../../src/audio/capture').CaptureFrame[] = []
+  const capture = createAudioCapture({ onFrame: frame => frames.push(frame) }, { inputGain: 2 })
+  await capture.start()
+  const samples = new Float32Array(4800)
+  for (let i = 2400; i < 2528; i++) samples[i] = i % 2 ? -.01 : .01
+  port.onmessage!({ data: { type: 'samples', samples, startFrame: 0, sampleRate: 48000 } })
+  expect(frames[0].pcm?.samples[2400]).toBe(Math.fround(.02))
+  expect(frames[0].onsets[0].time).toBe(.05)
+  expect(frames[0].onsets[0].strength).toBeCloseTo(.02)
+  expect(frames[0].waveform?.some(point => point.max === Math.fround(.02))).toBe(true)
+  capture.setInputGain!(.5)
+  port.onmessage!({ data: { type: 'samples', samples, startFrame: 4800, sampleRate: 48000 } })
+  expect(frames[1].pcm?.startFrame).toBe(4800)
+  expect(frames[1].pcm?.samples[2400]).toBe(Math.fround(.005))
+  expect(frames[0].pcm?.samples[2400]).toBe(Math.fround(.02))
+  expect(samples[2400]).toBe(Math.fround(.01))
+  await capture.stop()
+})
+
+it('refuses to silently ignore microphone gain on an older native plugin', async () => {
+  const capture = createAudioCapture({ onFrame: vi.fn() }, { inputGain: 2 })
+  await expect(capture.start()).rejects.toThrow('Microphone gain requires an updated native audio plugin')
+  expect(mocks.stop).toHaveBeenCalled()
+})
+it('passes initial gain to a native plugin that advertises support', async () => {
+  mocks.start.mockResolvedValue({ sessionId: 'gain-session', sampleRate: 48000, timestampQuality: 'sample-clock', inputGainSupported: true })
+  const capture = createAudioCapture({ onFrame: vi.fn() }, { inputGain: 1.05 })
+  await capture.start()
+  expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ inputGain: 1.05 }))
+  await capture.stop()
+})

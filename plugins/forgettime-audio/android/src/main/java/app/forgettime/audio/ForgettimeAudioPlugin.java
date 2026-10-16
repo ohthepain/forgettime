@@ -99,6 +99,7 @@ public class ForgettimeAudioPlugin extends Plugin {
             }
             if (record == null) throw new IllegalStateException("No supported microphone capture format.");
             Session capture = new Session(record, rate, detectorSettings(call.getObject("detectorSettings")));
+            capture.stream.setInputGain(call.getDouble("inputGain", 1.0));
             disableEffects(capture);
             record.startRecording();
             if (record.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING) {
@@ -111,6 +112,7 @@ public class ForgettimeAudioPlugin extends Plugin {
             result.put("sampleRate", rate);
             result.put("sessionId", capture.id);
             result.put("timestampQuality", "sample-clock");
+            result.put("inputGainSupported", true);
             result.put("diagnosticsSupported", true);
             result.put("analysis", new JSONObject(DrumOnsetDetector.map("implementation", "forgettime-java-onset", "version", "1")));
             call.resolve(result);
@@ -227,6 +229,14 @@ public class ForgettimeAudioPlugin extends Plugin {
         if (settings == null) return new DrumOnsetDetector.Settings();
         return new DrumOnsetDetector.Settings(settings.optInt("version", -1), settings.optDouble("minimumRms", Double.NaN),
             settings.optDouble("contrastRatio", Double.NaN), settings.optDouble("minSeparationMs", Double.NaN), settings.optDouble("recoverySeconds", Double.NaN));
+    }
+
+    @PluginMethod
+    public void setInputGain(PluginCall call) {
+        Session capture = session;
+        if (capture == null || !capture.id.equals(call.getString("sessionId"))) { call.resolve(); return; }
+        try { capture.stream.setInputGain(call.getDouble("inputGain", 1.0)); call.resolve(); }
+        catch (RuntimeException error) { call.reject(error.getMessage()); }
     }
 
     @PluginMethod

@@ -56,7 +56,7 @@ describe.skipIf(!process.env.FORGETTIME_NATIVE_HOST_TESTS)('Android native PCM t
     const take = result.current.recordedTake!
     expect(result.current.source).toBe('off')
     expect(bridge.stop).toHaveBeenCalledOnce()
-    expect(take).toMatchObject({ source: 'native', endReason: 'silence', analysis: { implementation: 'forgettime-java-onset', version: '1' }, settings: { detector: { version: 1, minimumRms: 0.006 } } })
+    expect(take).toMatchObject({ source: 'native', endReason: 'silence', analysis: { implementation: 'forgettime-java-onset', version: '1' }, settings: { detector: { version: 1, minimumRms: 0.002 } } })
     expect(take.diagnostics?.candidates.length).toBeGreaterThan(0)
     expect(take.origin).toBeCloseTo(0.1, 2)
     expect(take.onsets).toHaveLength(8)

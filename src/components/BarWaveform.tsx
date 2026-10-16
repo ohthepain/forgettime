@@ -2,13 +2,11 @@ import type { InspectableCandidate } from './DetectionDetails'
 import { ChevronLeft, ChevronRight, Play, Pause } from 'lucide-react'
 import { HIT_STRENGTH_COLORS, hitStrengthColor, WAVEFORM_COLUMNS, type BarWaveformSnapshot } from '../audio/bar-waveform'
 import type { TrackingStatus } from '../audio/engine'
-import { startingStrength } from '../audio/start-sensitivity'
 
-export function BarWaveform({ waveform, source, status, startSensitivity, review, comparison, diagnostics }: {
+export function BarWaveform({ waveform, source, status, review, comparison, diagnostics }: {
   waveform: BarWaveformSnapshot
   source: 'off' | 'microphone' | 'simulation' | 'replay'
   status: TrackingStatus
-  startSensitivity: number
   review?: { originalAvailable?: boolean; index: number; count: number; availableFraction: number; interrupted: boolean; previous: () => void; next: () => void; select: () => void; loop?: () => void; canLoop?: boolean }
   diagnostics?: { candidates: InspectableCandidate[]; selectedId?: number; select: (candidate: InspectableCandidate) => void }
   comparison?: { current: boolean; select: (current: boolean) => void }
@@ -16,7 +14,6 @@ export function BarWaveform({ waveform, source, status, startSensitivity, review
   const playing = status === 'playing'
   const held = waveform.review !== null
   const hasReference = waveform.progress !== null
-  const threshold = startingStrength(startSensitivity)
   const x = (position: number) => 4 + position * 504
   let current = ''
   let previous = ''
@@ -41,10 +38,9 @@ export function BarWaveform({ waveform, source, status, startSensitivity, review
         <button aria-label="Next bar" disabled={review.index + 1 >= review.count} onClick={review.next}><ChevronRight size={18} /></button>
       </div>}
       <div className="waveform-beats" aria-hidden="true">{[1, 2, 3, 4].map(beat => <span key={beat}>{beat}</span>)}</div>
-      <svg className="waveform-plot" viewBox="0 0 512 112" preserveAspectRatio="none" role="img" aria-label={`${held ? 'Held audio from the playing section, aligned to beats 1 to 4.' : 'One bar from beat 1 to beat 4, overwritten from the left on each new bar.'} Colored markers show detected hits and their strength. Dashed lines show the live sensitivity level (replay uses Detector controls).`}>
+      <svg className="waveform-plot" viewBox="0 0 512 112" preserveAspectRatio="none" role="img" aria-label={`${held ? 'Held audio from the playing section, aligned to beats 1 to 4.' : 'One bar from beat 1 to beat 4, overwritten from the left on each new bar.'} Colored markers show detected hits and their strength.`}>
         {[0, 1, 2, 3].map(beat => <line className="waveform-beat-guide" key={beat} x1={x(beat / 4)} x2={x(beat / 4)} y1="0" y2="112" vectorEffect="non-scaling-stroke" />)}
         <line className="waveform-zero" x1="4" x2="508" y1="56" y2="56" vectorEffect="non-scaling-stroke" />
-        {hasReference && [-1, 1].map(sign => <line key={sign} className="waveform-start-level" x1="4" x2="508" y1={56 + sign * threshold * 46} y2={56 + sign * threshold * 46} vectorEffect="non-scaling-stroke" />)}
         <path className="waveform-trace waveform-previous" d={previous} vectorEffect="non-scaling-stroke" />
         <path className="waveform-trace" d={current} vectorEffect="non-scaling-stroke" />
         {waveform.hits.map(hit => <g key={hit.time} className="waveform-hit" data-strength={hit.strength} data-position={hit.position}>
@@ -64,7 +60,6 @@ export function BarWaveform({ waveform, source, status, startSensitivity, review
     {comparison && <div className="mode-control replay-comparison" role="group" aria-label="Waveform detection comparison"><button aria-pressed={!comparison.current} onClick={() => comparison.select(false)}>Original capture</button><button aria-pressed={comparison.current} onClick={() => comparison.select(true)}>Current loop</button></div>}
     <div className="waveform-legend" aria-label="Detected hit strength from soft to hard">{HIT_STRENGTH_COLORS.map(band => <span key={band.label}><i style={{ background: band.color }} aria-hidden="true" />{band.label}</span>)}</div>
     <p className="waveform-note">Detected hits · colour shows input strength</p>
-    {hasReference && <p className="waveform-note waveform-threshold-note">Dashed lines: live sensitivity · {Math.round(threshold * 100)}% input peak.<br />Gates every live trigger; replay uses Detector controls.</p>}
     {review?.interrupted && <p className="waveform-note">Input interrupted · this take ends before the gap.</p>}
     {review && <p className="waveform-note">{!comparison?.current && review.originalAvailable === false ? 'Original detections unavailable' : `${waveform.hits.length} ${comparison?.current ? 'current-loop' : 'original'} detected hits`} · {waveform.review === 'partial' ? 'partial recorded bar' : 'complete recorded bar'}. {review.availableFraction < 1 ? 'Shaded area was not recorded. Looping needs a complete bar.' : ''}</p>}
     {held && !review && <p className="waveform-note">{waveform.review === 'complete' ? `${waveform.hits.length} detected hits · last complete bar before your final hit.` : 'Short take · play through a full bar for a complete review.'}</p>}

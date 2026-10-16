@@ -67,3 +67,25 @@ These browser checks exposed a server/client storage-capability hydration mismat
 - Physical output-to-display timing measurement and acoustic metronome leakage. Reported browser/iOS latency estimates and Android hardware timestamps are not calibrated acoustic measurements.
 
 Keep #14 and the parent spec open while these required checks remain unmet. No AWS changes, server audio endpoints, authentication/schema changes, automatic uploads, store release or background capture were added by this feature.
+
+## Import inspection and microphone gain — 16 October 2026
+
+Implemented full-source onset markers, cancellable sensitivity reanalysis, source timestamp inspection, independent time/amplitude zoom, overview navigation and keyboard alternatives. Input gain multiplies future microphone PCM before detection and retention on browser/Java/Swift capture paths. Live defaults stay independent of import/replay tuning. The v1 sidecar remains compatible.
+
+Validation passed: typecheck; production build; full opt-in native-host suite (305 tests in 31 files); an additional live-default isolation regression with all 26 practice integration tests; Java/Swift/TypeScript detector and waveform parity at 44.1/48 kHz; Swift capture validation including gain, exact retained PCM and contiguous clocks. The full native-host run required macOS codec access outside the filesystem sandbox. Stale fixture assertions expecting the previous 0.006 detector floor were corrected to current defaults, and live-gate assertions now reflect the agreed microphone-only gain model.
+
+After refreshing the local file dependency, installed native sources matched the plugin and Capacitor sync passed. Android assembleDebug passed (153 tasks); the iOS Simulator App target compiled with signing disabled and cached Capacitor packages. No phone/simulator launch, microphone session, installation or release was performed.
+
+The actual browser picker imported a generated four-second 48 kHz PCM fixture. Sensitivity 0 showed four accepted attacks; sensitivity 100 showed eight. Upward drag narrowed source time around the starting point; rightward drag enlarged waveform height while preserving the time view and beat one. Marker selection exposed source timestamps, overview/Reset zoom worked, and import confirmation retained sensitivity 100 at a fixed 120 BPM/0.1-second reference with originals unavailable. At 393 × 852, the popover stayed inside the viewport and document width remained 393 pixels. These are synthetic workflow and compilation checks, not acoustic-kit accuracy or physical-device gesture validation.
+
+### Follow-up UI queue fixes — 16 October 2026
+
+The current gesture scheme supersedes the initial/two-finger experiments above: a single-pointer vertical drag zooms time on both import displays; horizontal main-waveform drags change display amplitude and horizontal overview drags navigate. The overview directly follows the main waveform; the colour legend paragraph is removed. Microphone selection is inside Recording options, retaining its previous capability and disabled-state rules.
+
+Verified 26 focused component tests, typecheck, standard suite (290 passed, 21 opt-in native tests skipped), production build and diff whitespace checks. Real browser mouse drags exercised both surfaces with unchanged beat one; DOM/screenshot inspection confirmed adjacency, removed legend and microphone dropdown placement. Physical trackpad delivery and phone touch remain untested. No additional detector/native-source changes or device validation were part of these layout/interaction fixes.
+
+### Square waveform displays and marker audition — 16 October 2026
+
+Both import waveform displays now use square corners. The overview has a permanent inset 1px outline with a brighter 1px focus colour. A hovered or selected detection marker reveals a left-aligned 24px flat square play control. The hover column above the control retains its highlight. One-shot output auditions original source PCM from that marker to the current visible endpoint, with no microphone, gain change, detector run, score or reference mutation. Stop/Escape, replacement, range/settings/source changes, hiding and unmount release output.
+
+Typecheck, standard suite (297 passed, 21 opt-in native tests skipped), build, Java/Swift/TypeScript detector/waveform parity and diff checks passed. New tests cover source-frame extent/rate/content, non-looping output, cancellation before audio activation completes, stale completion events, hover retention, marker/button alignment, output errors and range/unmount stopping. Real browser UI imported a synthetic 48 kHz fixture, auditioned marker 1.6 s to visible endpoint 3 s, returned naturally to play, stopped on view changes and exited on Cancel import with microphone off. Computed CSS confirmed zero corner radii and a permanent 1px unfocused outline. Geometry confirmed a 24px square control with its left edge exactly at the marker. No native compilation was required by these web output/UI changes; phone behavior, physical trackpad delivery and human-audited/calibrated acoustic output remain unverified.

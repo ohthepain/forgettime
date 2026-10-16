@@ -33,9 +33,9 @@ try {
     assert.deepEqual(readFileSync(output), bytes, 'Every source sample, including opening onset context, survives native capture')
     const detector = new OnsetDetector()
     const expected = detector.process(fixture.samples, 0, rate)
-    assert.equal(actual.onsets.length, fixture.expectedTimes.length)
+    assert.equal(actual.onsets.length, fixture.sensitiveExpectedTimes.length)
     actual.onsets.forEach((onset, index) => {
-      assert.ok(Math.abs(onset.time - fixture.expectedTimes[index]) < 0.004, 'Known fixture attack time')
+      assert.ok(Math.abs(onset.time - fixture.sensitiveExpectedTimes[index]) < 0.004, 'Known fixture attack time')
       for (const field of ['time', 'strength', 'confidence'] as const) {
         assert.ok(Math.abs(onset[field] - expected[index][field]) < 1e-10, `${rate} native capture ${field} parity`)
       }

@@ -53,7 +53,7 @@ describe.skipIf(!enabled)('Swift files through shared native adapter and practic
     expect(hook.result.current.recordedTake!.diagnostics).toEqual(expected.diagnostics)
     expect(hook.result.current).toMatchObject({ source: 'off', captureMode: 'single', reviewBarCount: 1 })
     await act(() => hook.result.current.configureDetector({ minimumRms: .1 }))
-    expect(hook.result.current.recordedTake!.settings.detector!.minimumRms).toBe(.006)
+    expect(hook.result.current.recordedTake!.settings.detector!.minimumRms).toBe(DEFAULT_DETECTOR_SETTINGS.minimumRms)
     await act(() => hook.result.current.exportSavedPair(id))
     expect(hook.result.current.libraryNotice).toMatch(/cancelled.*retained/i)
     expect((await options.savedBars!.read(id)).wav).toEqual(pair.wav)
