@@ -94,22 +94,24 @@ describe('the locked musical reference', () => {
     expect(engine.snapshot(1)).toMatchObject({ status: 'playing', beat: 1, phaseOrigin: 1 });
   });
 
-  it('keeps quieter follow-up hits and the fixed clock when sensitivity changes, then gates the restart', () => {
+  it('filters every live trigger without moving the clock or extending silence for rejected hits', () => {
     const engine = new TimingEngine({ bpm: 120, startSensitivity: 100 });
     engine.start(0);
     engine.addOnset({ time: 1, strength: 0.04, confidence: 0.95 });
     engine.configure({ startSensitivity: 0 });
     engine.addOnset({ time: 1.5, strength: 0.03, confidence: 0.95 });
-    const playing = engine.snapshot(1.75);
-    expect(playing.phaseOrigin).toBe(1);
-    expect(playing.hits).toHaveLength(1);
-    expect(playing.hits[0].errorMs).toBeCloseTo(0);
-    expect(engine.snapshot(3.499).status).toBe('playing');
-    // The timeout is checked even if the next callback already contains a hit.
-    engine.addOnset({ time: 3.5, strength: 0.03, confidence: 0.95 });
-    expect(engine.snapshot(3.5)).toMatchObject({ status: 'paused', phaseOrigin: null, beat: null });
-    engine.addOnset({ time: 4, strength: 0.5, confidence: 0.95 });
-    expect(engine.snapshot(4)).toMatchObject({ status: 'playing', phaseOrigin: 4, beat: 1 });
+    expect(engine.snapshot(1.75)).toMatchObject({ phaseOrigin: 1, bpm: 120, hits: [], lastHitTime: 1 });
+    expect(engine.silenceDeadline).toBe(3);
+    engine.addOnset({ time: 2, strength: 0.5, confidence: 0.95 });
+    expect(engine.snapshot(2.25).hits.map(hit => hit.time)).toEqual([2]);
+    engine.configure({ startSensitivity: 100 });
+    engine.addOnset({ time: 2.5, strength: 0.03, confidence: 0.95 });
+    expect(engine.snapshot(2.75)).toMatchObject({ phaseOrigin: 1, bpm: 120, lastHitTime: 2.5 });
+    engine.configure({ startSensitivity: 0 });
+    engine.addOnset({ time: 4.5, strength: 0.03, confidence: 0.95 });
+    expect(engine.snapshot(4.5)).toMatchObject({ status: 'paused', phaseOrigin: null });
+    engine.addOnset({ time: 5, strength: 0.5, confidence: 0.95 });
+    expect(engine.snapshot(5)).toMatchObject({ status: 'playing', phaseOrigin: 5, beat: 1 });
   });
 
   it('resets the reference on tempo or interpretation edits, and stops completely on request', () => {

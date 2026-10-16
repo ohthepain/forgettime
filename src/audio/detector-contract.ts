@@ -46,7 +46,9 @@ export interface DetectorCandidate {
   }
 }
 export interface ReviewedCandidate extends DetectorCandidate {
-  /** Shared acquisition interpretation; detector acceptance remains unchanged. */
+  /** Shared live-gate interpretation; legacy acquisition field names remain file-compatible.
+   * below-start-level also denotes a sensitivity rejection during active playing.
+   * Detector acceptance remains unchanged. */
   acquisition?: 'started' | 'below-start-level' | 'low-confidence' | 'not-required'
   acquisitionGate?: { minimumStrength: number; minimumConfidence: number }
 }

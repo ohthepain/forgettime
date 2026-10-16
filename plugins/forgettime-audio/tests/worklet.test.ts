@@ -118,7 +118,8 @@ it.each([[90, 0], [120, 0], [90, 0.025], [120, 0.025]])('compensates 250 ms of d
   const { render, command, sandbox, batches } = createWorklet()
   sandbox.currentFrame = 0
   const detector = new OnsetDetector()
-  const engine = new TimingEngine({ bpm })
+  // This output-clock fixture deliberately detects quiet loopback clicks.
+  const engine = new TimingEngine({ bpm, startSensitivity: 100 })
   const coach = new MetronomeCoach()
   const alignment = new BrowserOutputAlignment()
   const waveform = new BarWaveformBuffer()

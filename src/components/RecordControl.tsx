@@ -37,10 +37,10 @@ export function RecordControl({ active, auto, busy, disabled, stopLabel, listen,
     <button className="record-options" aria-label="Recording options" aria-expanded={open} aria-controls="recording-options" onClick={() => setOpen(!open)}><ChevronDown size={18} /></button>
     <span id="record-hint" className="sr-only">Press to start or stop. Hold to enable Auto capture.</span>
     {open && <div id="recording-options" className="record-popover">
-      <div className="setting-label"><label htmlFor="record-sensitivity">Start sensitivity</label><output htmlFor="record-sensitivity">{startSensitivity}%</output></div>
+      <div className="setting-label"><label htmlFor="record-sensitivity">Sensitivity</label><output htmlFor="record-sensitivity">{startSensitivity}%</output></div>
       <input id="record-sensitivity" type="range" min={0} max={100} value={startSensitivity} onChange={event => setStartSensitivity(Number(event.target.value))} aria-describedby="record-sensitivity-note" />
       <div className="sensitivity-scale"><span>Firmer hit</span><span>Softer hit</span></div>
-      <p id="record-sensitivity-note">Lower to avoid background noise starting a take. Only affects starting and restarting; quieter hits still count while playing.</p>
+      <p id="record-sensitivity-note">Lower to reject background noise throughout playing. Raise for softer hits. Changes preserve your beat and tempo. Replay uses Detector controls.</p>
       <button className="capture-auto" aria-label="Auto capture" aria-pressed={auto} disabled={busy || disabled || (active && !auto)} onClick={() => void (auto ? stop() : listen('auto'))}>Auto capture</button>
       <p>Hold the record button for Auto. Press to stop.</p>
     </div>}

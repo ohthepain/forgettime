@@ -180,7 +180,7 @@ it('offers waveform loop playback, identifies replay, and preserves original/cur
   expect(state.stop).toHaveBeenCalled()
 })
 
-it('reveals candidate decisions accessibly and commits detector controls separately from Start sensitivity', () => {
+it('reveals candidate decisions accessibly and commits detector controls separately from Sensitivity', () => {
   const detector = new OnsetDetector()
   const pcm = new Float32Array(48000)
   for (let i = 0; i < 128; i++) pcm[4800 + i] = (i % 2 ? -0.003 : 0.003)
@@ -191,7 +191,7 @@ it('reveals candidate decisions accessibly and commits detector controls separat
   render(<PracticeScreen />)
   expect(screen.queryByRole('group', { name: 'Detector controls' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Detection details' }))
-  expect(screen.getByText(/Start sensitivity only gates live acquisition/)).toBeDefined()
+  expect(screen.getByText(/Sensitivity gates every live trigger/)).toBeDefined()
   fireEvent.click(screen.getAllByRole('button', { name: /Inspect candidate/ })[0])
   expect(screen.getByText('Detector rejected')).toBeDefined()
   expect(screen.getByText(/rise,.*contrast/)).toBeDefined()

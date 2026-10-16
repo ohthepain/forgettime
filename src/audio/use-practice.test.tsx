@@ -387,8 +387,35 @@ describe('live timing integration', () => {
     rerender({ sensitivity: 0 })
     act(() => { quiet(101.5); frame(101.75) })
     expect(result.current.snapshot.phaseOrigin).toBe(101)
-    expect(result.current.snapshot.hits.at(-1)?.time).toBe(101.5)
+    expect(result.current.snapshot.hits).toHaveLength(0)
+    expect(result.current.waveform.hits.map(hit => hit.time)).not.toContain(101.5)
+    await act(() => frame(103))
+    expect(stopCapture).toHaveBeenCalled()
     expect(mocked.create).toHaveBeenCalledOnce()
+  })
+
+  it.each(['web', 'native'] as const)('filters live %s PCM triggers from scoring, recorded onsets and waveform without extending Auto silence', async source => {
+    const detector = new OnsetDetector()
+    const rate = 48000
+    const samples = new Float32Array(rate * 3)
+    for (const [time, strength] of [[0.1, 0.8], [0.6, 0.08], [1.1, 0.8], [2.6, 0.08]]) {
+      for (let i = 0; i < 128; i++) samples[Math.round(time * rate) + i] = i % 2 ? -strength : strength
+    }
+    const onsets = detector.process(samples, 0, rate)
+    expect(onsets).toHaveLength(4) // Detector attempts remain available for inspection.
+    const { result } = renderHook(() => usePractice(120, 'straight', 25))
+    await act(() => result.current.listen('auto'))
+    act(() => callbacks.onFrame({ ...info, source, time: 3, level: 0, onsets,
+      pcm: { startFrame: 0, samples }, diagnostics: detector.drainDiagnostics() }))
+    expect(result.current.snapshot).toMatchObject({ status: 'playing', phaseOrigin: onsets[0].time, lastHitTime: onsets[2].time })
+    expect(result.current.waveform.hits.map(hit => hit.time)).not.toContain(onsets[3].time)
+    const rejected = result.current.liveDiagnostics.candidates.filter(candidate => candidate.acquisition === 'below-start-level')
+    expect(rejected).toHaveLength(2)
+    act(() => callbacks.onFrame({ ...info, source, time: 3.2, level: 0, onsets: [], pcm: { startFrame: samples.length, samples: new Float32Array(rate * .2) } }))
+    expect(result.current.snapshot.status).toBe('paused')
+    expect(result.current.recordedTake?.onsets.map(hit => hit.time)).toEqual([onsets[0].time, onsets[2].time])
+    expect(result.current.recordedTake?.diagnostics?.candidates.filter(candidate => candidate.acquisition === 'below-start-level')).toHaveLength(2)
+    expect(stopCapture).not.toHaveBeenCalled() // Auto keeps listening, not a noise-extended take.
   })
 
   it('ignores stale frames and a delayed permission success after stop', async () => {

@@ -14,7 +14,7 @@ export function DetectionDetails({ open, toggle, settings, originalSettings, sup
   return <section className="detection-details">
     <button className="detection-toggle" aria-expanded={open} aria-controls="detection-details-content" onClick={toggle}>Detection details</button>
     {open && <div id="detection-details-content">
-      <p className="waveform-note">Start sensitivity only gates live acquisition. Dashed waveform guides show that start level, not the adaptive detector threshold.</p>
+      <p className="waveform-note">Sensitivity gates every live trigger. Dashed waveform guides show the live peak threshold; replay uses the separate Detector controls.</p>
       <fieldset disabled={!supported} aria-label="Detector controls"><legend>Detector controls</legend>
         {(Object.keys(DETECTOR_CONTROLS) as DetectorSettingKey[]).map(key => {
           const control = DETECTOR_CONTROLS[key]
@@ -34,14 +34,14 @@ export function DetectionDetails({ open, toggle, settings, originalSettings, sup
         {dropped > 0 && <p className="capture-notice" role="status">Diagnostics incomplete · {dropped} candidates omitted at the storage limit.</p>}
         <p className="waveform-note">{candidates.length ? `Showing ${activePage * 20 + 1}–${Math.min(candidates.length, activePage * 20 + 20)} of ${candidates.length} candidates. Rejected markers follow this page.` : 'No attempted attacks in this segment.'}</p>
         <div className="candidate-list" aria-label="Candidate decisions">{visible.map(candidate => <button key={candidate.id} aria-label={`Inspect candidate ${candidate.id} at ${candidate.time.toFixed(3)} seconds`} aria-pressed={selected?.id === candidate.id}
-          onClick={() => select(candidate)}><span>{candidate.time.toFixed(3)} s</span><span>{!candidate.accepted ? 'Rejected' : candidate.acquisition === 'below-start-level' || candidate.acquisition === 'low-confidence' ? 'Start gate' : candidate.uncertain ? 'Accepted · uncertain rhythm' : 'Accepted'}</span></button>)}</div>
+          onClick={() => select(candidate)}><span>{candidate.time.toFixed(3)} s</span><span>{!candidate.accepted ? 'Rejected' : candidate.acquisition === 'below-start-level' || candidate.acquisition === 'low-confidence' ? 'Live gate' : candidate.uncertain ? 'Accepted · uncertain rhythm' : 'Accepted'}</span></button>)}</div>
         {pageCount > 1 && <div className="candidate-pages"><button disabled={activePage === 0} onClick={() => setPage(activePage - 1)}>Previous candidates</button><button disabled={activePage + 1 === pageCount} onClick={() => setPage(activePage + 1)}>Next candidates</button></div>}
       </>}
-      {selected && m && <div className="candidate-inspection" aria-live="polite"><h3>{!selected.accepted ? 'Detector rejected' : selected.acquisition === 'below-start-level' || selected.acquisition === 'low-confidence' ? 'Detector accepted · start gate rejected' : selected.uncertain ? 'Detector accepted · rhythmic interpretation uncertain' : 'Detector accepted'}</h3>
+      {selected && m && <div className="candidate-inspection" aria-live="polite"><h3>{!selected.accepted ? 'Detector rejected' : selected.acquisition === 'below-start-level' || selected.acquisition === 'low-confidence' ? 'Detector accepted · live gate rejected' : selected.uncertain ? 'Detector accepted · rhythmic interpretation uncertain' : 'Detector accepted'}</h3>
         <p>Candidate {selected.id} · {selected.time.toFixed(3)} source seconds{selected.iteration === undefined ? '' : ` · loop ${selected.iteration + 1}`}</p>
-        <p>{selected.reasons.length ? selected.reasons.join(', ') : selected.acquisition === 'below-start-level' ? 'Below Start sensitivity level' : selected.acquisition === 'low-confidence' ? 'Insufficient confidence to start' : selected.uncertain ? 'No precise timing score for this attack' : selected.acquisition === 'started' ? 'Established beat 1; this reference hit has no timing score' : 'Passed detector checks'}</p>
+        <p>{selected.reasons.length ? selected.reasons.join(', ') : selected.acquisition === 'below-start-level' ? 'Below live sensitivity level' : selected.acquisition === 'low-confidence' ? 'Insufficient confidence to start' : selected.uncertain ? 'No precise timing score for this attack' : selected.acquisition === 'started' ? 'Established beat 1; this reference hit has no timing score' : 'Passed detector checks'}</p>
         <table aria-label="Candidate measurements"><thead><tr><th>Measurement</th><th>Observed</th><th>Required</th></tr></thead><tbody>
-          {selected.acquisitionGate && <><tr><th>Start peak</th><td>{selected.strength.toFixed(4)}</td><td>≥ {selected.acquisitionGate.minimumStrength.toFixed(4)}</td></tr><tr><th>Start confidence</th><td>{selected.confidence.toFixed(2)}</td><td>≥ {selected.acquisitionGate.minimumConfidence}</td></tr></>}
+          {selected.acquisitionGate && <><tr><th>Live peak</th><td>{selected.strength.toFixed(4)}</td><td>≥ {selected.acquisitionGate.minimumStrength.toFixed(4)}</td></tr><tr><th>Live confidence</th><td>{selected.confidence.toFixed(2)}</td><td>≥ {selected.acquisitionGate.minimumConfidence}</td></tr></>}
           <tr><th>RMS level</th><td>{m.rms.toFixed(4)}</td><td>≥ {m.minimumLevel.toFixed(4)}</td></tr>
           <tr><th>RMS rise</th><td>{m.rise.toFixed(4)}</td><td>≥ {m.minimumRise}</td></tr>
           <tr><th>Rise ratio</th><td>{m.ratio.toFixed(2)}×</td><td>≥ {m.minimumRatio}×</td></tr>

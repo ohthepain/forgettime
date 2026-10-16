@@ -24,7 +24,7 @@ it('exposes persisted start sensitivity without activating capture', () => {
   const listen = vi.fn(async () => {})
   render(<RecordControl active={false} auto={false} busy={false} disabled={false} stopLabel="Stop listening" listen={listen} stop={vi.fn(async () => {})} />)
   fireEvent.click(screen.getByRole('button', { name: 'Recording options' }))
-  fireEvent.change(screen.getByRole('slider', { name: 'Start sensitivity' }), { target: { value: '15' } })
+  fireEvent.change(screen.getByRole('slider', { name: 'Sensitivity' }), { target: { value: '15' } })
   expect(usePreferences.getState().startSensitivity).toBe(15)
   expect(listen).not.toHaveBeenCalled()
 })

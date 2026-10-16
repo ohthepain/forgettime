@@ -189,6 +189,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
         } else setRecordingNotice('Recorded bar review unavailable · update the mobile audio plugin')
         const candidates: ReviewedCandidate[] = frame.diagnostics?.candidates.map(candidate => ({ ...candidate })) ?? []
         recorder.current.appendDiagnostics(frame.diagnostics)
+        const acceptedOnsets: typeof frame.onsets = []
         for (const onset of frame.onsets) {
           if (recorder.current.limitTime !== null && onset.time >= recorder.current.limitTime) break
           const deadline = engine.current.silenceDeadline
@@ -206,11 +207,11 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
           const acquisition: ReviewedCandidate['acquisition'] = state.phaseOrigin === onset.time ? 'started'
             : state.lastHitTime === onset.time ? 'not-required'
             : onset.strength < startingStrength(settings.current.startSensitivity) ? 'below-start-level' : 'low-confidence'
-          const acquisitionGate = acquisition === 'not-required' ? undefined : { minimumStrength: startingStrength(settings.current.startSensitivity), minimumConfidence: 0.55 }
+          const acquisitionGate = acquisition === 'not-required' ? undefined : { minimumStrength: startingStrength(settings.current.startSensitivity), minimumConfidence: acquisition === 'below-start-level' && state.status === 'playing' ? 0 : 0.55 }
           recorder.current.annotateCandidate(onset.time, acquisition, acquisitionGate)
           const candidate = candidates.find(candidate => candidate.accepted && candidate.time === onset.time)
           if (candidate) { candidate.acquisition = acquisition; candidate.acquisitionGate = acquisitionGate }
-          if (state.lastHitTime === onset.time) recorder.current.accept(onset)
+          if (state.lastHitTime === onset.time) { recorder.current.accept(onset); acceptedOnsets.push(onset) }
         }
         if (frame.diagnostics) setLiveDiagnostics(previous => {
           const combined = [...previous.candidates, ...candidates]
@@ -225,7 +226,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, startSensitiv
         if (frame.metronomeAvailable === false && coaching.plan && frame.time > (next.phaseOrigin ?? frame.time) + 1) {
           setOutputNotice('Metronome is waiting for a reliable audio output clock. Try another audio device.')
         } else if (!outputFailed.current) setOutputNotice(null)
-        setWaveform(waveformBuffer.current.addFrame(frame.time, frame.waveform, frame.onsets, next))
+        setWaveform(waveformBuffer.current.addFrame(frame.time, frame.waveform, acceptedOnsets, next))
         setSnapshot(next)
         setCaptureNotice(notice => next.status === 'playing' ? null : notice ? 'Microphone input restored · play to set a fresh beat' : null)
         setLevel(frame.level)

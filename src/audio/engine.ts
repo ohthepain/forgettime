@@ -92,7 +92,7 @@ export class TimingEngine {
     const changed = (options.bpm !== undefined && options.bpm !== this.bpm) || (options.mode !== undefined && options.mode !== this.mode);
     this.bpm = options.bpm ?? this.bpm;
     this.mode = options.mode ?? this.mode;
-    // Sensitivity applies to the next start only; editing it cannot move a live beat.
+    // Live sensitivity edits apply immediately without moving the established beat.
     if (options.startSensitivity !== undefined) this.startSensitivity = normalizeStartSensitivity(options.startSensitivity);
     if (changed) {
       const wasRunning = this.status !== 'idle';
@@ -106,10 +106,12 @@ export class TimingEngine {
     if (this.status === 'idle' || !Number.isFinite(onset.strength) || !Number.isFinite(onset.confidence)
       || (this.lastHit !== null && onset.time <= this.lastHit)) return;
     this.advance(onset.time, false);
+    // One shared live gate for browser and native onsets. Rejected noise cannot
+    // score, influence rhythm interpretation, or extend the silence deadline.
+    // Replay has its own detector controls and bypasses this live input gate.
+    if (!this.replay && onset.strength < startingStrength(this.startSensitivity)) return;
     if (this.status === 'listening' || this.status === 'paused') {
-      // Ignore weaker candidates completely while waiting. They must not start
-      // a beat, influence its origin, or keep a paused performance alive.
-      if (onset.strength < startingStrength(this.startSensitivity) || onset.confidence < 0.55) return;
+      if (onset.confidence < 0.55) return;
       this.clearPerformance();
       this.phaseOrigin = onset.time;
       this.lastHit = onset.time;
