@@ -29,7 +29,7 @@ export function BarWaveform({ waveform, source, status, review, comparison, diag
     : !waveform.available ? 'Waveform unavailable · update the mobile app'
     : null
   return <section className="bar-waveform" aria-label="One-bar audio waveform">
-    <div className="waveform-heading"><span className="small-label">{review ? waveform.review === 'complete' ? 'RECORDED BAR' : 'PARTIAL BAR' : held ? waveform.review === 'complete' ? 'LAST PLAYED BAR' : 'PARTIAL BAR' : 'ONE BAR'}</span><span className={source === 'simulation' ? 'demo-label' : ''}>{source === 'replay' ? 'REPLAY · MIC OFF' : review ? 'RECORDED AUDIO' : source === 'simulation' ? held ? 'SIMULATION · HELD' : 'SIMULATED AUDIO' : held ? 'HELD FOR REVIEW' : source === 'microphone' ? 'LIVE AUDIO' : 'WAVEFORM'}</span></div>
+    {(review || held || source !== 'off') && <div className="waveform-heading">{(review || held) && <span className="small-label">{review ? waveform.review === 'complete' ? 'RECORDED BAR' : 'PARTIAL BAR' : held ? waveform.review === 'complete' ? 'LAST PLAYED BAR' : 'PARTIAL BAR' : null}</span>}<span className={source === 'simulation' ? 'demo-label' : ''}>{source === 'replay' ? 'REPLAY · MIC OFF' : review ? 'RECORDED AUDIO' : source === 'simulation' ? held ? 'SIMULATION · HELD' : 'SIMULATED AUDIO' : held ? 'HELD FOR REVIEW' : source === 'microphone' ? 'LIVE AUDIO' : 'WAVEFORM'}</span></div>}
     <div className="waveform-display">
       {review && <div className="waveform-review-controls" role="group" aria-label="Recorded bar navigation">
         <button aria-label="Previous bar" disabled={review.index === 0} onClick={review.previous}><ChevronLeft size={18} /></button>

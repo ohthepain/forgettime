@@ -64,12 +64,12 @@ export function PracticeScreen() {
   }, [practice.recordedTake])
   const status = source === 'replay' ? `Loop ${(replay?.iteration ?? 0) + 1} · ${snapshot.bpm} BPM fixed` : busy ? 'Opening microphone…' : snapshot.status === 'playing' ? `Playing · ${bpm} BPM locked`
     : snapshot.status === 'paused' ? 'Paused · listening for you'
-    : snapshot.status === 'listening' ? 'Listening · play your first hit' : 'Your tempo. Your time.'
+    : snapshot.status === 'listening' ? 'Listening · play your first hit' : null
   const latest = snapshot.hits.at(-1)
   const lastScored = [...snapshot.hits].reverse().find(hit => !hit.uncertain && hit.errorMs !== null)
   const detail = latest?.uncertain ? 'Uncertain attack' : lastScored?.errorMs !== undefined && lastScored.errorMs !== null
     ? Math.abs(lastScored.errorMs) < 5 ? 'Right in the pocket' : `${Math.abs(Math.round(lastScored.errorMs))} ms ${lastScored.errorMs < 0 ? 'ahead' : 'behind'}`
-    : playing ? 'Beat set' : snapshot.status === 'paused' ? 'Ready when you are' : 'Find your pocket'
+    : playing ? 'Beat set' : snapshot.status === 'paused' ? 'Ready when you are' : null
   async function inspectReview(action: () => void | Promise<void>) {
     if (review && source === 'microphone') await practice.reviewCurrentBar()
     await action()
@@ -85,30 +85,30 @@ export function PracticeScreen() {
       <div className="header-actions"><button className="icon-button" onClick={() => setHelpOpen(!helpOpen)} aria-label="How it works" aria-expanded={helpOpen}><CircleHelp size={19} /></button><button className="icon-button" onClick={() => setAccountOpen(true)} aria-label="Your account"><UserRound size={19} /></button><button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label="Settings" aria-haspopup="dialog" aria-expanded={settingsOpen}><Settings size={19} /></button></div>
     </header>
     <section className="tempo-card" aria-label="Drum timing practice">
-      <div className="card-heading"><h1>Tempo</h1><div className="card-recording">{(source === 'simulation' || source === 'replay' || (review && source === 'off')) && <span className="practice-label">{source === 'simulation' ? 'SIMULATION' : source === 'replay' ? 'BAR REPLAY' : 'BAR REVIEW'}</span>}
+      <div className="practice-toolbar" role="group" aria-label="Practice controls">
         <RecordControl gainAdjustment={practice.gainAdjustment} manualInputGain={practice.manualInputGain} active={running} auto={practice.captureMode === 'auto'} busy={busy} disabled={importPending}
           microphone={practice.canSelectInput ? { devices: practice.inputDevices, deviceId: practice.deviceId, select: practice.setDeviceId } : undefined}
           stopLabel={busy ? 'Cancel microphone' : source === 'simulation' ? 'Stop simulation' : source === 'replay' ? 'Pause playback' : 'Stop listening'} listen={practice.listen} stop={practice.stop} />
-      </div></div>
-      <div className="tempo-row">
-        <div className="bpm-control"><input id="bpm" aria-label="Tempo in beats per minute" inputMode="numeric" type="number" min={30} max={300} step={1} value={source === 'replay' ? snapshot.bpm : tempoText} disabled={busy || source === 'simulation' || source === 'replay'} onChange={event => setTempoText(event.target.value)} onBlur={commitTempo} onKeyDown={event => { if (event.key === 'Enter') { commitTempo(); event.currentTarget.blur() } }} /><label htmlFor="bpm">BPM</label></div>
-        <div className={`beat-counter ${showBeat ? 'is-visible' : ''}`} role="timer" aria-live="off" aria-hidden={!showBeat} aria-label={showBeat ? `Beat ${snapshot.beat} of 4` : undefined}>
-          <div className="beat-current"><span className="beat-number">
+        <button className="metronome-settings" aria-label="Metronome settings" aria-haspopup="dialog" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(true)}>
+        <span className={`beat-counter ${showBeat ? 'is-visible' : ''}`} role="timer" aria-live="off" aria-hidden={!showBeat} aria-label={showBeat ? `Beat ${snapshot.beat} of 4` : undefined}>
+          <span className="beat-current"><span className="beat-number">
             <BeatPendulum time={practice.captureTime} origin={snapshot.phaseOrigin} bpm={snapshot.bpm} active={showBeat} />
             <span className="beat-number-value">{snapshot.beat ?? 1}</span>
-          </span><span className="beat-caption">BEAT<br />OF 4</span></div>
-          <div className="beat-dots" aria-hidden="true">{[1, 2, 3, 4].map(beat => <i key={beat} className={snapshot.beat === beat ? 'active' : ''} />)}</div>
-        </div>
+          </span><span className="beat-caption">BEAT<br />OF 4</span></span>
+          <span className="beat-dots" aria-hidden="true">{[1, 2, 3, 4].map(beat => <i key={beat} className={snapshot.beat === beat ? 'active' : ''} />)}</span>
+        </span>
+        </button>
+        <div className="bpm-control"><input id="bpm" aria-label="Tempo in beats per minute" inputMode="numeric" type="number" min={30} max={300} step={1} value={source === 'replay' ? snapshot.bpm : tempoText} disabled={busy || source === 'simulation' || source === 'replay'} onChange={event => setTempoText(event.target.value)} onBlur={commitTempo} onKeyDown={event => { if (event.key === 'Enter') { commitTempo(); event.currentTarget.blur() } }} /><label htmlFor="bpm">BPM</label></div>
       </div>
-      <p className="playing-status" role="status"><span className={`status-dot ${running ? 'active' : ''}`} />{status}</p>
-      <div className="meter-labels"><span>Ahead</span><span>On time</span><span>Behind</span></div>
+      {(source === 'simulation' || source === 'replay' || (review && source === 'off')) && <p className="practice-label">{source === 'simulation' ? 'SIMULATION' : source === 'replay' ? 'BAR REPLAY' : 'BAR REVIEW'}</p>}
+      {status && <p className="playing-status" role="status"><span className={`status-dot ${running ? 'active' : ''}`} />{status}</p>}
       <div className="timing-meter" role="img" aria-label="Timing meter. Early hits appear left, late hits right. Each line fades over one second.">
         <div className="centre-band" /><div className="centre-line" />
         {presented.hits.map(hit => <div key={hit.id} className={`hit-line ${Math.abs(hit.errorMs!) > 100 ? 'out-of-range' : ''}`} style={{ left: `${50 + Math.max(-100, Math.min(100, hit.errorMs!)) / 2}%` }} data-error-ms={hit.errorMs!.toFixed(2)} onAnimationEnd={() => presented.removeHit(hit.id)} />)}
         <span className="meter-hint">{playing ? 'Stay with your time' : snapshot.status === 'paused' ? 'Play to begin again' : running ? 'Your first strong hit sets beat 1' : 'A little more in time, every time.'}</span>
       </div>
       <div className="meter-scale"><span>−100 ms</span><span>0</span><span>+100 ms</span></div>
-      <div className="result-area"><p className={latest?.uncertain ? 'result uncertain' : 'result'}>{detail}</p><p className="result-note">{latest?.uncertain ? 'No timing score for this hit' : playing ? 'Reference stays fixed as you play' : 'Let your hands do the talking'}</p></div>
+      {detail && <div className="result-area"><p className={latest?.uncertain ? 'result uncertain' : 'result'}>{detail}</p><p className="result-note">{latest?.uncertain ? 'No timing score for this hit' : playing ? 'Reference stays fixed as you play' : null}</p></div>}
       <BarWaveform waveform={reviewWaveform ?? practice.waveform} source={source === 'replay' ? 'replay' : review ? 'microphone' : source === 'off' && practice.waveform.review ? practice.waveformSource : source}
         status={snapshot.status}
         diagnostics={detailsOpen && source !== 'simulation' ? { candidates: visibleCandidates, selectedId: inspectedCandidate?.id, select: inspectCandidate } : undefined}

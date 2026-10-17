@@ -267,3 +267,30 @@ it('keeps metronome settings in Settings and removes capture-silence copy from t
     if (close) Object.defineProperty(prototype, 'close', close); else Reflect.deleteProperty(prototype, 'close')
   }
 })
+
+
+it('opens Settings from the metronome and returns focus without activating capture', () => {
+  const prototype = HTMLDialogElement.prototype
+  const show = Object.getOwnPropertyDescriptor(prototype, 'showModal'), close = Object.getOwnPropertyDescriptor(prototype, 'close')
+  Object.defineProperty(prototype, 'showModal', { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute('open', '') } })
+  Object.defineProperty(prototype, 'close', { configurable: true, value: function (this: HTMLDialogElement) { this.removeAttribute('open') } })
+  state = practice()
+  vi.mocked(usePractice).mockImplementation(() => state)
+  try {
+    render(<PracticeScreen />)
+    const metronome = screen.getByRole('button', { name: 'Metronome settings' })
+    metronome.focus()
+    fireEvent.click(metronome)
+    const dialog = screen.getByRole('dialog', { name: 'Settings' })
+    expect(within(dialog).getByRole('button', { name: 'Metronome sound' })).toBeDefined()
+    expect(state.listen).not.toHaveBeenCalled()
+    expect(state.stop).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close settings' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(metronome)
+  } finally {
+    cleanup()
+    if (show) Object.defineProperty(prototype, 'showModal', show); else Reflect.deleteProperty(prototype, 'showModal')
+    if (close) Object.defineProperty(prototype, 'close', close); else Reflect.deleteProperty(prototype, 'close')
+  }
+})

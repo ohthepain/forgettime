@@ -46,3 +46,8 @@ During live capture, including waiting between Auto takes, any absolute post-gai
 Recording options opens automatically and closes 500 ms after adjustment finishes, unless the player interacts with it or had opened it manually. Dismissing it suppresses automatic reopening for that take without stopping gain adjustment. Touching the gain slider cancels adjustment and disables automatic reductions until the next take. Stopping capture cancels the ramp at its current value. Beat one, tempo, phase and retained samples never change as a result of the adjustment; only future microphone samples use the new gain. Replay, imports and simulations do not trigger adjustment. Older native plugins without applied-gain packet metadata do not perform automatic adjustment.
 
 Validation: the standard suite passed with 307 tests and 21 opt-in tests skipped; typecheck, production build and Java/Swift/TypeScript detector parity passed. Focused controller/UI tests cover threshold, peak targeting, retargeting, minimum gain, manual override, stopping, popup lifetime and reference preservation. Java and Swift host capture checks verify applied-gain metadata and 0.1× retained PCM; all six Android capture/practice workflow tests passed. These synthetic and host checks do not establish physical-device or acoustic-kit behavior.
+
+
+## Compact practice controls
+
+Record, the metronome and BPM share one top row. Tapping or keyboard-activating the metronome opens Settings. The idle card omits the Tempo heading, idle tagline and pocket guidance, Ahead/On time/Behind labels and default ONE BAR/WAVEFORM heading. Active capture/replay status, timing results, waveform provenance and the live/simulation distinction remain available. Recording and timing behavior are unchanged.

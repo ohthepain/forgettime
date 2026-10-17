@@ -152,3 +152,20 @@
 .import-preview-status { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; }
 
 .import-overview-selected-trace { fill: none; stroke: #ffe08a; stroke-width: 1; opacity: 1; }
+
+
+/* One top row for capture, metronome settings and the fixed practice tempo. */
+.practice-toolbar { display: grid; grid-template-columns: auto minmax(44px, 1fr) auto; align-items: center; gap: 8px; margin: 0 0 24px; }
+.practice-toolbar .bpm-control { flex-direction: column; align-items: flex-end; gap: 0; }
+.practice-toolbar .bpm-control input { width: 3.1ch; font-size: clamp(38px, 10vw, 64px); text-align: right; }
+.practice-toolbar .bpm-control label { font-size: 13px; }
+.metronome-settings { display: flex; align-items: center; justify-content: center; justify-self: center; width: 100%; max-width: 94px; min-width: 44px; min-height: 88px; padding: 0; border: 0; border-radius: 10px; background: transparent; color: inherit; cursor: pointer; }
+.metronome-settings:focus-visible { outline: 2px solid #9cbea7; outline-offset: 4px; }
+.practice-toolbar .beat-counter { width: 100%; flex-basis: auto; margin: 0; }
+.practice-toolbar .beat-current { justify-content: center; gap: 0; }
+.practice-toolbar .beat-current > span.beat-number { font-size: 36px; min-height: 58px; }
+.practice-toolbar .beat-caption { display: none; }
+.practice-toolbar .beat-dots { justify-content: center; gap: 5px; }
+.practice-toolbar .beat-pendulum { width: 80px; height: 88px; bottom: -8px; }
+.practice-toolbar .record-popover { left: 0; right: auto; max-width: calc(100vw - 64px); }
+.tempo-card > .practice-label { margin: 0 0 16px; text-align: right; }
