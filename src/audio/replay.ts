@@ -1,3 +1,4 @@
+import { DEFAULT_FREQUENCY_BALANCE, normalizeFrequencyBalance } from './frequency-evidence'
 import { Capacitor } from '@capacitor/core'
 import { NativeBarReplay } from './native-replay'
 import { DEFAULT_DETECTOR_SETTINGS, MAX_DIAGNOSTIC_CANDIDATES, normalizeDetectorSettings, type DetectorCandidate, type DetectorSettings } from './detector-contract'
@@ -11,6 +12,7 @@ export interface ReplayCandidate extends DetectorCandidate { iteration: number; 
 export interface ReplayResult extends ResolvedHit { iteration: number; position: number }
 export interface ReplayState {
   settings: DetectorSettings
+  frequencyBalance?: number
   candidates: ReplayCandidate[]
   diagnosticsDropped: number
   run: number
@@ -24,8 +26,8 @@ export interface ReplayState {
   results: ReplayResult[]
 }
 export interface BarReplay { start(): Promise<void>; stop(): Promise<void>; setMetronome(options: MetronomeOptions): void }
-export function createBarReplay(take: RecordedTake, index: number, onState: (state: ReplayState) => void, onError: (message: string) => void, settings: DetectorSettings): BarReplay {
-  return Capacitor.isNativePlatform() ? new NativeBarReplay(take, index, onState, onError, settings) : new BrowserBarReplay(take, index, onState, onError, settings)
+export function createBarReplay(take: RecordedTake, index: number, onState: (state: ReplayState) => void, onError: (message: string) => void, settings: DetectorSettings, frequencyBalance = DEFAULT_FREQUENCY_BALANCE): BarReplay {
+  return Capacitor.isNativePlatform() ? new NativeBarReplay(take, index, onState, onError, settings, frequencyBalance) : new BrowserBarReplay(take, index, onState, onError, settings, frequencyBalance)
 }
 let nextRun = 0
 export function allocateReplayRun() { return ++nextRun }
@@ -54,9 +56,10 @@ export class BrowserBarReplay {
   private readonly bar
   private readonly origin: number
 
-  constructor(take: RecordedTake, index: number, private onState: (state: ReplayState) => void, private onError: (message: string) => void, settings: DetectorSettings = DEFAULT_DETECTOR_SETTINGS) {
+  constructor(take: RecordedTake, index: number, private onState: (state: ReplayState) => void, private onError: (message: string) => void, settings: DetectorSettings = DEFAULT_DETECTOR_SETTINGS, private frequencyBalance = 0) {
+    this.frequencyBalance = normalizeFrequencyBalance(frequencyBalance)
     this.settings = normalizeDetectorSettings(settings)
-    this.detector = new OnsetDetector(this.settings)
+    this.detector = new OnsetDetector(this.settings, this.frequencyBalance)
     this.bar = recordedBar(take, index)
     if (!this.bar.complete || !this.bar.audio.samples.length) throw new Error('Loop playback needs a complete recorded bar. Unrecorded audio cannot be replayed.')
     this.origin = this.bar.start - this.bar.audio.startFrame / this.bar.audio.sampleRate
@@ -140,7 +143,7 @@ export class BrowserBarReplay {
     this.pendingPresentation = []
     snapshot.hits = [...delivered.values()].map(hit => ({ ...hit, id: this.run * 1_000_000 + hit.id }))
     const metronomeActive = this.scheduleMetronome(snapshot, time)
-    this.onState({ settings: this.settings, candidates: this.candidates.slice(), diagnosticsDropped: this.diagnosticsDropped, metronomeActive, run: this.run, iteration, time, progress: position, snapshot, onsets: this.onsets.slice(), results: this.results.slice() })
+    this.onState({ settings: this.settings, frequencyBalance: this.frequencyBalance, candidates: this.candidates.slice(), diagnosticsDropped: this.diagnosticsDropped, metronomeActive, run: this.run, iteration, time, progress: position, snapshot, onsets: this.onsets.slice(), results: this.results.slice() })
   }
 
   setMetronome(options: MetronomeOptions) {

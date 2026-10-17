@@ -1,0 +1,40 @@
+<!-- Local regression harness: temporarily copy to public/, open via the dev server, then remove the public copy. Uses an isolated test database. -->
+<!doctype html><title>Latest performance storage checks</title><pre id="results">Running…</pre>
+<script type="module">
+import { createLatestPerformanceRepository } from '/src/audio/latest-performance.ts'
+import { DEFAULT_DETECTOR_SETTINGS } from '/src/audio/detector-contract.ts'
+const database = 'forgettime-latest-performance-check-' + crypto.randomUUID()
+const factory = { open: (_, version) => indexedDB.open(database, version) }
+const checks = []
+function check(ok, label) { if (!ok) throw new Error(label); checks.push('PASS: ' + label) }
+const samples = new Float32Array(48000); samples.set([-0, 1.5, -.25])
+const take = { source: 'imported', audio: { samples, sampleRate: 8000, startFrame: 0 }, origin: .01,
+ continuity: 3, settings: { bpm: 120, mode: 'straight', startSensitivity: 50 }, onsets: [], results: [], endReason: 'stopped' }
+const review = { barIndex: 0, detectionSensitivity: 50, detector: { ...DEFAULT_DETECTOR_SETTINGS } }
+try {
+ const first = createLatestPerformanceRepository(factory)
+ await first.save({ take, review })
+ const reopened = createLatestPerformanceRepository(factory)
+ const restored = await reopened.read()
+ check(Object.is(restored.take.audio.samples[0], -0) && restored.take.audio.samples[1] === 1.5 && restored.take.audio.samples.length === 48000, 'Exact full-take Float32 audio survives repository restart')
+ await reopened.save({ take: restored.take, review: { ...review, barIndex: 1, detectionSensitivity: 80 } })
+ check((await createLatestPerformanceRepository(factory).read()).review.barIndex === 1, 'Review settings persist separately from original take')
+ const originalPut = IDBObjectStore.prototype.put
+ IDBObjectStore.prototype.put = function(value, key) {
+  const result = originalPut.call(this, value, key)
+  if (this.transaction.db.name === database && key === 'review') this.transaction.abort()
+  return result
+ }
+ let rejected = false
+ try { await reopened.save({ take: { ...take, origin: .2 }, review }) } catch { rejected = true }
+ finally { IDBObjectStore.prototype.put = originalPut }
+ const afterAbort = await createLatestPerformanceRepository(factory).read()
+ check(rejected && afterAbort.take.origin === .01 && afterAbort.review.barIndex === 1, 'Aborted replacement preserves both prior audio and review atomically')
+ await reopened.save({ take: { ...take, origin: .3 }, review })
+ check((await createLatestPerformanceRepository(factory).read()).take.origin === .3, 'A failed save does not block the next replacement')
+ let invalid = false
+ try { await reopened.save({ take: { ...take, audio: { ...take.audio, samples: Float32Array.of(NaN) } }, review }) } catch { invalid = true }
+ check(invalid && (await createLatestPerformanceRepository(factory).read()).take.origin === .3, 'Invalid cached audio cannot replace the previous performance')
+ document.querySelector('#results').textContent = checks.join('\n')
+} catch (error) { document.querySelector('#results').textContent = checks.join('\n') + '\nFAIL: ' + error.stack }
+</script>

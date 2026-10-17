@@ -27,6 +27,8 @@ export function normalizeDetectorSettings(settings: Partial<DetectorSettings> = 
 }
 export type DetectorRejectionReason = 'warming-up' | 'level' | 'rise' | 'contrast' | 'rearming' | 'separation'
 export interface DetectorCandidate {
+  /** Optional review-only evidence; legacy measurements below remain broadband. */
+  evidence?: { version: 1; frequencyBalance: number; energyScore: number; frequencyScore: number; blendedScore: number; bandHz: number }
   version: typeof DETECTOR_VERSION
   /** Unique within this detector stream/run; never a wall-clock identifier. */
   id: number

@@ -25,19 +25,19 @@ describe.skipIf(!process.env.FORGETTIME_NATIVE_HOST_TESTS)('real Java loop sourc
     for (const time of [0.1, 0.35, 0.62, 0.82, 1.12, 1.35, 1.64, 1.86]) for (let i = 0; i < 256; i++) samples[Math.round(time * rate) + i] = (i % 2 ? -0.2 : 0.2) * Math.exp(-i / 100)
     return samples
   }
-  function frames(samples: Float32Array, rate: number, step: number, settings = DEFAULT_DETECTOR_SETTINGS) {
+  function frames(samples: Float32Array, rate: number, step: number, settings = DEFAULT_DETECTOR_SETTINGS, frequencyBalance = 0) {
     const path = join(directory, 'source.f32'); writeFileSync(path, Buffer.from(samples.buffer))
-    return execFileSync(join(java, 'java'), ['-cp', directory, 'AndroidReplayRunner', path, String(rate), String(settings.minimumRms), String(settings.contrastRatio), String(settings.minSeparationMs), String(settings.recoverySeconds), String(Math.round(step * rate)), '3'], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).trim().split('\n').map(line => JSON.parse(line))
+    return execFileSync(join(java, 'java'), ['-cp', directory, 'AndroidReplayRunner', path, String(rate), String(settings.minimumRms), String(settings.contrastRatio), String(settings.minSeparationMs), String(settings.recoverySeconds), String(Math.round(step * rate)), '3', String(frequencyBalance)], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).trim().split('\n').map(line => JSON.parse(line))
   }
-  async function present(samples: Float32Array, rate: number, packets: ReturnType<typeof frames>, settings = DEFAULT_DETECTOR_SETTINGS) {
+  async function present(samples: Float32Array, rate: number, packets: ReturnType<typeof frames>, settings = DEFAULT_DETECTOR_SETTINGS, frequencyBalance = 0) {
     let tick!: FrameRequestCallback, latest!: ReplayState, sessionId = ''
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { tick = callback; return 1 }); vi.stubGlobal('cancelAnimationFrame', vi.fn())
-    hardware.start.mockImplementation(async request => { sessionId = request.sessionId; return { sessionId, sampleRate: rate, frameCount: samples.length, diagnosticsSupported: true } })
+    hardware.start.mockImplementation(async request => { sessionId = request.sessionId; return { sessionId, sampleRate: rate, frameCount: samples.length, diagnosticsSupported: true, frequencyBalanceSupported: true } })
     hardware.stop.mockResolvedValue(undefined); hardware.plan.mockResolvedValue(undefined)
     hardware.read.mockImplementation(async () => ({ ...packets.shift(), sessionId }))
     const original = { audio: { samples, sampleRate: rate, startFrame: 0 }, origin: 0, source: 'native' as const, continuity: 0,
       settings: { bpm: 120, mode: 'auto' as const, startSensitivity: 50 }, onsets: [], results: [], endReason: 'stopped' as const }
-    const replay = new NativeBarReplay(original, 0, state => { latest = state }, message => { throw new Error(message) }, settings)
+    const replay = new NativeBarReplay(original, 0, state => { latest = state }, message => { throw new Error(message) }, settings, frequencyBalance)
     await replay.start()
     while (packets.length) await tick(1e10)
     await replay.stop()
@@ -68,9 +68,9 @@ describe.skipIf(!process.env.FORGETTIME_NATIVE_HOST_TESTS)('real Java loop sourc
       if (expected && typeof expected === 'object') { expect(Object.keys(actual).sort()).toEqual(Object.keys(expected).sort()); for (const key of Object.keys(expected)) compare(actual[key], expected[key]); return }
       expect(actual).toEqual(expected)
     }
-    for (const options of settings) {
-      const native = frames(samples, rate, 0.017, options)
-      const detector = new OnsetDetector(options)
+    for (const options of settings) for (const balance of [0, 50, 100]) {
+      const native = frames(samples, rate, 0.017, options, balance)
+      const detector = new OnsetDetector(options, balance)
       const pcm = Float32Array.from({ length: samples.length * 3 }, (_, i) => samples[i % samples.length])
       const onsets = [], candidates = []
       for (let cursor = 0; cursor < pcm.length; cursor += 127) {
@@ -79,7 +79,7 @@ describe.skipIf(!process.env.FORGETTIME_NATIVE_HOST_TESTS)('real Java loop sourc
       }
       compare(native.flatMap(frame => frame.onsets), onsets)
       compare(native.flatMap(frame => frame.diagnostics.candidates), candidates)
-      if (options === DEFAULT_DETECTOR_SETTINGS) {
+      if (options === DEFAULT_DETECTOR_SETTINGS && balance === 0) {
         expect(new Set(candidates.flatMap(candidate => candidate.reasons))).toEqual(new Set(['warming-up', 'level', 'rise', 'contrast', 'separation', 'rearming']))
       }
     }
@@ -96,6 +96,14 @@ describe.skipIf(!process.env.FORGETTIME_NATIVE_HOST_TESTS)('real Java loop sourc
     expect(tuned.snapshot).toMatchObject({ status: 'playing', phaseOrigin: 0 })
     expect(restarted.onsets).toEqual(normal.onsets)
     expect(restarted.run).not.toBe(normal.run)
+  })
+
+  it.each([50, 100])('presents the requested frequency balance %i on the fixed native grid', async balance => {
+    const rate = 48000, samples = fixture(rate)
+    const state = await present(samples, rate, frames(samples, rate, .25, DEFAULT_DETECTOR_SETTINGS, balance), DEFAULT_DETECTOR_SETTINGS, balance)
+    expect(state.frequencyBalance).toBe(balance)
+    expect(state.snapshot.phaseOrigin).toBe(0)
+    expect(state.candidates.some(candidate => candidate.evidence?.frequencyBalance === balance)).toBe(true)
   })
 
 })

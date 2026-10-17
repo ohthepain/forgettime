@@ -5,7 +5,7 @@ let settings = CommandLine.arguments.count >= 8
     ? try DetectorSettings(["version": 1, "minimumRms": Double(CommandLine.arguments[4])!,
         "contrastRatio": Double(CommandLine.arguments[5])!, "minSeparationMs": Double(CommandLine.arguments[6])!,
         "recoverySeconds": Double(CommandLine.arguments[7])!]) : DetectorSettings.defaults
-let detector = DrumOnsetDetector(sampleRate: rate, settings: settings)
+let detector = DrumOnsetDetector(sampleRate: rate, settings: settings, frequencyBalance: CommandLine.arguments.count >= 9 ? Double(CommandLine.arguments[8])! : 0)
 let waveform = WaveformEnvelopeCapture(sampleRate: rate)
 let showWaveform = CommandLine.arguments.count > 3 && CommandLine.arguments[3] == "waveform"
 for frame in 0..<(data.count / 4) {

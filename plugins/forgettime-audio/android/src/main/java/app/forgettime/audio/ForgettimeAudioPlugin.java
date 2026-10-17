@@ -265,10 +265,10 @@ public class ForgettimeAudioPlugin extends Plugin {
                 if (!Float.isFinite(samples[i])) throw new IllegalArgumentException("Replay samples must be finite.");
             }
             AudioManager manager = (AudioManager) getContext().getSystemService(android.content.Context.AUDIO_SERVICE);
-            replay = new ReplayOutput(samples, rate, detectorSettings(call.getObject("detectorSettings")), manager);
+            replay = new ReplayOutput(samples, rate, detectorSettings(call.getObject("detectorSettings")), call.getDouble("frequencyBalance", 0.0), manager);
             replayId = id;
             JSObject result = new JSObject(); result.put("sessionId", id); result.put("sampleRate", rate);
-            result.put("frameCount", samples.length); result.put("diagnosticsSupported", true); call.resolve(result);
+            result.put("frameCount", samples.length); result.put("diagnosticsSupported", true); result.put("frequencyBalanceSupported", true); call.resolve(result);
         } catch (Exception error) { call.reject("Unable to start native replay: " + error.getMessage(), error); }
     }
 

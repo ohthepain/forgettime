@@ -16,9 +16,9 @@ final class NativeReplayOutput {
     private var lastRenderFrame: Int64 = 0
     private var stopped = false
 
-    init(sessionId: String, sampleRate: Double, samples: [Float], settings: DetectorSettings) throws {
+    init(sessionId: String, sampleRate: Double, samples: [Float], settings: DetectorSettings, frequencyBalance: Double = 0) throws {
         self.sessionId = sessionId
-        stream = try NativeReplayStream(sampleRate: sampleRate, samples: samples, settings: settings)
+        stream = try NativeReplayStream(sampleRate: sampleRate, samples: samples, settings: settings, frequencyBalance: frequencyBalance)
         clock = ReplaySourceClock(sourceRate: sampleRate)
     }
     func start() throws {

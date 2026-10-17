@@ -39,3 +39,11 @@ A Chromium check also verified real IndexedDB commit/reopen, page restart, dupli
 The platform-neutral reference pair at `tests/fixtures/bar-files/float32-partial.{wav,forget}` was encoded independently with Python's IEEE Float32 packing. It contains signed zero, values outside [-1,1], missing analysis/diagnostics and a result presented after the partial clip. Browser, Java and Swift file workflow fixtures consume these same bytes.
 
 Microphone Input gain is baked into retained Float32 PCM before live detection; changing it only affects future samples. Imported audio is never gain-adjusted. The legacy v1 sensitivity field remains readable and exportable without representing an active control; waveform zoom and import preview detections are not original analysis.
+
+
+## Latest working performance recovery
+
+The development recovery slot is separate from this WAV/`.forget` interchange contract and saved-bars library. `latest-performance.ts` stores one versioned full take as bounded Float32 PCM plus metadata in IndexedDB (browser or native WebView). Original analysis stays separate from current review settings. A transaction replaces audio and review together; changes to controls or selected bar write only review state. A failed replacement preserves the previous committed slot. Restore validates bounds/schema and remains silent on unavailable, evicted or malformed data. No active-capture checkpoint, export, upload or playback occurs on restoration.
+
+
+Detection balance belongs to current review state in the latest-performance slot. The existing v1 `.forget` original settings and diagnostics remain unchanged; replay-only frequency/blend evidence is not exported as original analysis. Older recovery review records without balance restore at 100% Frequency change.

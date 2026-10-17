@@ -28,7 +28,7 @@ let settings = try DetectorSettings(JSONSerialization.jsonObject(with: Data(Comm
 let samples: [Float] = (0..<(input.count / 4)).map { frame in
     input.withUnsafeBytes { bytes in Float(bitPattern: UInt32(littleEndian: bytes.loadUnaligned(fromByteOffset: frame * 4, as: UInt32.self))) }
 }
-let replay = try NativeReplayStream(sampleRate: rate, samples: samples, settings: settings)
+let replay = try NativeReplayStream(sampleRate: rate, samples: samples, settings: settings, frequencyBalance: CommandLine.arguments.count > 5 ? Double(CommandLine.arguments[5])! : 0)
 for frame in CommandLine.arguments[4].split(separator: ",").map({ Int64($0)! }) {
     let result = try replay.read(audibleFrame: frame)
     print(String(data: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), encoding: .utf8)!)

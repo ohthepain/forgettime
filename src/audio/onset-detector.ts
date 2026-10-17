@@ -1,3 +1,4 @@
+import { FrequencyEvidence, normalizeFrequencyBalance } from './frequency-evidence'
 import { DEFAULT_DETECTOR_SETTINGS, DETECTOR_VERSION, MAX_DIAGNOSTIC_CANDIDATES, normalizeDetectorSettings, type DetectorSettings, type DetectorCandidate, type DetectorRejectionReason, type DetectorDiagnostics } from './detector-contract'
 /** All times are seconds on the captured audio sample clock, never callback time. */
 export interface DetectedOnset {
@@ -22,7 +23,12 @@ export class OnsetDetector {
   private diagnostics: DetectorCandidate[] = [];
   private diagnosticsDropped = 0;
   private nextCandidateId = 1;
-  constructor(settings: Partial<DetectorSettings> = DEFAULT_DETECTOR_SETTINGS) { this.settings = normalizeDetectorSettings(settings); }
+  private frequency: FrequencyEvidence | null = null;
+  private readonly frequencyBalance: number;
+  constructor(settings: Partial<DetectorSettings> = DEFAULT_DETECTOR_SETTINGS, frequencyBalance = 0) {
+    this.settings = normalizeDetectorSettings(settings);
+    this.frequencyBalance = normalizeFrequencyBalance(frequencyBalance);
+  }
   /** Live edits preserve detector history; the practice reference is untouched. */
   configure(settings: DetectorSettings) { this.settings = normalizeDetectorSettings(settings); }
   drainDiagnostics(): DetectorDiagnostics {
@@ -59,6 +65,7 @@ export class OnsetDetector {
     this.diagnostics = [];
     this.diagnosticsDropped = 0;
     this.sampleRate = 0;
+    this.frequency = null;
     this.filled = 0;
     this.expectedTime = null;
     this.previousRms = 0;
@@ -84,6 +91,7 @@ export class OnsetDetector {
     if (sampleRate !== this.sampleRate || (this.expectedTime !== null && Math.abs(startTimeSeconds - this.expectedTime) > 2 / sampleRate)) {
       this.reset();
       this.sampleRate = sampleRate;
+      if (this.frequencyBalance > 0) this.frequency = new FrequencyEvidence(sampleRate);
       this.window = new Float32Array(Math.max(32, Math.round(sampleRate * 0.002667)));
     }
     const onsets: DetectedOnset[] = [];
@@ -160,26 +168,34 @@ export class OnsetDetector {
     if (envelopeRms < this.recentPeak * 0.7) this.armed = true;
     this.previousRms = rms;
     this.recentPeak = Math.max(envelopeRms, this.recentPeak * 0.99);
+    const frequency = this.frequency?.analyze(this.window, this.sampleRate, floor, this.settings.contrastRatio);
+    const energyScore = Math.max(0, Math.min(2, rise / .002, ratio / 1.55,
+      contrast / this.settings.contrastRatio, this.armed ? 2 : ratio / 4));
+    const weight = this.frequencyBalance / 100;
+    const blendedScore = frequency ? (1 - weight) * energyScore + weight * frequency.score : energyScore;
     const reasons: DetectorRejectionReason[] = [];
     if (!backgroundReady) reasons.push('warming-up');
 
     if (elapsed < this.settings.minSeparationMs / 1000) reasons.push('separation');
     // While the smoothed body is still active, only a much clearer new edge
     // may bypass rearming. A modest later kick-body rise remains the same hit.
-    if (!this.armed && ratio < 4) reasons.push('rearming');
+    if (!frequency && !this.armed && ratio < 4) reasons.push('rearming');
     if (rms < minimumLevel) reasons.push('level');
-    if (rise < 0.002 || ratio < 1.55) reasons.push('rise');
-    if (contrast < this.settings.contrastRatio) reasons.push('contrast');
+    if (frequency ? blendedScore < 1 : rise < 0.002 || ratio < 1.55) reasons.push('rise');
+    if (!frequency && contrast < this.settings.contrastRatio) reasons.push('contrast');
     // Timestamp both accepted and rejected attempts at their captured crossing.
     let offset = 0;
     const attackThreshold = Math.max(peak * 0.25, previous * 2);
     while (offset < this.window.length - 1 && Math.abs(this.window[offset]) < attackThreshold) offset += 1;
+    if (frequency && weight >= .5) offset = frequency.offset;
     const time = this.windowTime + offset / this.sampleRate;
-    const confidence = Math.min(0.98, Math.max(0.35, 0.45 + Math.log2(Math.max(ratio, 1e-12)) * 0.15 + Math.min(0.2, rise * 2)));
+    const confidence = Math.min(0.98, Math.max(0.35, 0.45 + Math.log2(Math.max(frequency ? 1 + blendedScore : ratio, 1e-12)) * 0.15 + Math.min(0.2, rise * 2)));
     // An attempted attack is a distinct rising envelope, including soft attempts
     // below the selected floor. Silence/steady/decaying windows are not candidates.
-    if (!reasons.length || (peak >= 0.001 && rise > 0.0001 && rms / Math.max(previous, 0.0001) >= 1.1)) {
+    if (!reasons.length || (frequency && frequency.score > .1) || (peak >= 0.001 && rise > 0.0001 && rms / Math.max(previous, 0.0001) >= 1.1)) {
       const candidate: DetectorCandidate = { version: DETECTOR_VERSION, id: this.nextCandidateId++, time,
+        ...(frequency ? { evidence: { version: 1 as const, frequencyBalance: this.frequencyBalance,
+          energyScore, frequencyScore: frequency.score, blendedScore, bandHz: frequency.bandHz } } : {}),
         strength: Math.min(1, peak), confidence, accepted: !reasons.length, reasons, settings: { ...this.settings },
         measurements: { rms, minimumLevel, levelReference: this.levelReference, rise, minimumRise: 0.002,
           ratio, minimumRatio: 1.55, contrast, minimumContrast: this.settings.contrastRatio,
@@ -190,6 +206,7 @@ export class OnsetDetector {
     }
     if (reasons.length) return null;
 
+    this.frequency?.accept(this.settings.contrastRatio);
     this.lastOnsetTime = time;
     if (fullContrast >= this.settings.contrastRatio) {
       this.lastClearAttackTime = time;

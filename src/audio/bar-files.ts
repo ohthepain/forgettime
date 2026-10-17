@@ -14,7 +14,7 @@ const candidate = z.strictObject({ version: z.literal(1), id: integer, time, str
   measurements: z.strictObject({ rms: positive, minimumLevel: positive, levelReference: positive, rise: finite, minimumRise: positive, ratio: positive, minimumRatio: positive, contrast: finite, minimumContrast: positive, backgroundRms: positive, baselineRms: positive, armed: z.boolean(), rearmRatio: positive, elapsedMs: positive.nullable(), minimumSeparationMs: positive }),
   acquisition: z.enum(['started', 'below-start-level', 'low-confidence', 'not-required']).optional(), acquisitionGate: z.strictObject({ minimumStrength: unit, minimumConfidence: unit }).optional() })
 const result = z.strictObject({ id: integer, time, errorMs: finite.min(-120000).max(120000).nullable(), confidence: unit, subdivision: z.enum(['quarter', 'eighth', 'sixteenth', 'triplet', 'sextuplet']), uncertain: z.boolean(), reason: z.string().max(1024).optional(), displayedAt: time, guidance: z.strictObject({ intendedTime: time, errorMs: finite.min(-120000).max(120000) }).optional() })
-const sidecarSchema = z.strictObject({ format: z.literal('forgettime-bar'), schemaVersion: z.literal(1),
+export const barSidecarSchema = z.strictObject({ format: z.literal('forgettime-bar'), schemaVersion: z.literal(1),
   audio: z.strictObject({ encoding: z.literal('float32'), byteLength: integer.max(MAX_AUDIO_FILE_BYTES), sha256: z.string().regex(/^[a-f0-9]{64}$/), sampleRate: integer.min(8000).max(192000), channels: z.literal(1), frames: integer.positive() }),
   musical: z.strictObject({ origin: time, duration: finite.positive().max(120), bars: z.literal(1), complete: z.boolean() }),
   settings: z.strictObject({ bpm: finite.min(30).max(300), mode: z.enum(['auto', 'straight', 'swing']), startSensitivity: finite.min(0).max(100), detector: detector.optional() }),
@@ -23,7 +23,7 @@ const sidecarSchema = z.strictObject({ format: z.literal('forgettime-bar'), sche
   analysis: z.strictObject({ implementation: z.string().min(1).max(100), version: z.string().min(1).max(100) }).nullable(),
   original: z.strictObject({ onsets: z.array(onset).max(20000), results: z.array(result).max(20000), diagnostics: z.strictObject({ candidates: z.array(candidate).max(MAX_DIAGNOSTIC_CANDIDATES), dropped: integer }).nullable() }),
   endReason: z.enum(['silence', 'stopped', 'interrupted', 'limit']) })
-export type BarSidecar = z.infer<typeof sidecarSchema>
+export type BarSidecar = z.infer<typeof barSidecarSchema>
 export interface BarFiles { wav: ArrayBuffer; sidecar: string }
 export async function audioDigest(bytes: ArrayBuffer) {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(byte => byte.toString(16).padStart(2, '0')).join('')
@@ -31,7 +31,7 @@ export async function audioDigest(bytes: ArrayBuffer) {
 export function parseBarSidecar(text: string): BarSidecar {
   if (text.length > MAX_SIDECAR_BYTES || new TextEncoder().encode(text).length > MAX_SIDECAR_BYTES) throw new Error('Bar metadata exceeds supported limits.')
   try {
-    const metadata = sidecarSchema.parse(JSON.parse(text))
+    const metadata = barSidecarSchema.parse(JSON.parse(text))
     const { results, diagnostics } = metadata.original
     if (results.some(hit => hit.uncertain !== (hit.errorMs === null)) || new Set(results.map(hit => hit.id)).size !== results.length) throw new Error('Contradictory original scores.')
     if (diagnostics && (new Set(diagnostics.candidates.map(hit => hit.id)).size !== diagnostics.candidates.length || diagnostics.candidates.some(hit => hit.accepted !== (hit.reasons.length === 0) || new Set(hit.reasons).size !== hit.reasons.length))) throw new Error('Contradictory detector diagnostics.')

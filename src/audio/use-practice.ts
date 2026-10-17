@@ -1,3 +1,5 @@
+import { DEFAULT_FREQUENCY_BALANCE, normalizeFrequencyBalance } from './frequency-evidence'
+import { createLatestPerformanceRepository } from './latest-performance'
 import { AutomaticGain } from './automatic-gain'
 import { usePreferences } from '../lib/preferences'
 import { createNativeBarFiles } from './native-files'
@@ -22,6 +24,10 @@ export type CaptureMode = 'single' | 'auto'
 import { TakeRecorder, recordedBar, recordedBarCount, initialReviewBar, type RecordedTake, type TakeEndReason } from './recorded-take'
 type Source = 'off' | 'microphone' | 'simulation' | 'replay'
 export function usePractice(bpm: number, mode: InterpretationMode, inputGain = DEFAULT_INPUT_GAIN, metronomeOptions = DEFAULT_METRONOME, fileOptions: BarFileOptions = {}) {
+  const latestPerformance = useMemo(() => fileOptions.latestPerformance === undefined
+    ? (typeof indexedDB === 'undefined' ? null : createLatestPerformanceRepository()) : fileOptions.latestPerformance, [])
+  const [latestLoaded, setLatestLoaded] = useState(false)
+  const reviewEdited = useRef(false)
   const startSensitivity = DEFAULT_START_SENSITIVITY // Legacy sidecar field, not an active live control.
   const automaticGain = useRef(new AutomaticGain())
   const [gainAdjustment, setGainAdjustment] = useState({ adjusting: false, limited: false, take: 0 })
@@ -35,6 +41,8 @@ export function usePractice(bpm: number, mode: InterpretationMode, inputGain = D
   function manualInputGain() { automaticGain.current.manual(); stopGainAdjustment() }
   const gain = useRef(inputGain)
   gain.current = inputGain
+  const [frequencyBalance, setFrequencyBalance] = useState(DEFAULT_FREQUENCY_BALANCE)
+  const balance = useRef(DEFAULT_FREQUENCY_BALANCE)
   const [detectionSensitivity, setDetectionSensitivity] = useState<number | null>(DEFAULT_DETECTION_SENSITIVITY)
   const platformFiles = useMemo(() => Capacitor.isNativePlatform() ? createNativeBarFiles() : {}, [])
   const importer = useRef(fileOptions.importer ?? platformFiles.importer ?? browserAudioImport)
@@ -72,6 +80,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, inputGain = D
   const retainTake = useCallback((take: RecordedTake | null) => {
     if (!take) return
     setRecordedTake(take)
+    balance.current = DEFAULT_FREQUENCY_BALANCE; setFrequencyBalance(balance.current)
     setReviewBarIndex(initialReviewBar(take))
   }, [])
   const finishTake = useCallback((reason: TakeEndReason, endTime?: number) => {
@@ -391,7 +400,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, inputGain = D
         if (generation.current !== activeGeneration) return
         setError(message)
         void stop()
-      }, detectorOptions.current)
+      }, detectorOptions.current, balance.current)
       replay.current = output
       output.setMetronome(outputOptions.current)
       await output.start()
@@ -407,6 +416,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, inputGain = D
   const restartReplay = useCallback(async () => { if (replay.current) await playBar() }, [playBar])
   const configureDetector = useCallback(async (patch: Partial<DetectorSettings>) => {
     if (capture.current || busy) return
+    reviewEdited.current = true
     const next = normalizeDetectorSettings({ ...detectorOptions.current, ...patch })
     if (JSON.stringify(next) === JSON.stringify(detectorOptions.current)) return
     detectorOptions.current = next
@@ -421,6 +431,14 @@ export function usePractice(bpm: number, mode: InterpretationMode, inputGain = D
     setDetectionSensitivity(bounded)
     await operation
   }, [configureDetector, busy])
+  const configureBalance = useCallback(async (value: number) => {
+    if (capture.current || busy || !Number.isFinite(value)) return
+    reviewEdited.current = true
+    const next = normalizeFrequencyBalance(value)
+    if (next === balance.current) return
+    balance.current = next; setFrequencyBalance(next)
+    if (replay.current) await playBar()
+  }, [playBar, busy])
   const resetDetector = useCallback(() => configureSensitivity(DEFAULT_DETECTION_SENSITIVITY), [configureSensitivity])
   const reviewCurrentBar = useCallback(async () => { await stop() }, [stop])
   const selectBar = useCallback(async (index: number) => {
@@ -434,10 +452,36 @@ export function usePractice(bpm: number, mode: InterpretationMode, inputGain = D
   const installMaterial = useCallback((take: RecordedTake) => {
     setError(null)
     setImportState(null); setImportError(null); setImportNotice(null); setImportBusy(false)
+    balance.current = DEFAULT_FREQUENCY_BALANCE; setFrequencyBalance(balance.current)
     setRecordedTake(take); setReviewBarIndex(0); setReplayState(null); setRecordingNotice(null)
     setLiveDiagnostics({ candidates: [], dropped: 0, supported: false })
     if (take.settings.detector) { detectorOptions.current = { ...take.settings.detector }; setDetectorSettings(detectorOptions.current); setDetectionSensitivity(null) }
   }, [])
+  useEffect(() => {
+    let active = true
+    const startingGeneration = generation.current
+    void latestPerformance?.read().then(performance => {
+      if (!active || !performance || generation.current !== startingGeneration || reviewEdited.current) return
+      installMaterial(performance.take)
+      setReviewBarIndex(performance.review.barIndex)
+      detectorOptions.current = { ...performance.review.detector }
+      setDetectorSettings(detectorOptions.current)
+      setDetectionSensitivity(performance.review.detectionSensitivity)
+      balance.current = performance.review.frequencyBalance
+      setFrequencyBalance(balance.current)
+      usePreferences.setState({ bpm: performance.take.settings.bpm, mode: performance.take.settings.mode })
+    }).catch(() => {}).finally(() => { if (active) setLatestLoaded(true) })
+    if (!latestPerformance) setLatestLoaded(true)
+    return () => { active = false }
+  }, [latestPerformance, installMaterial])
+  useEffect(() => {
+    if (!latestLoaded || !latestPerformance || !recordedTake) return
+    // No active-take checkpoints or unload writes; complete replacements are atomic.
+    void latestPerformance.save({ take: recordedTake, review: {
+      barIndex: reviewBarIndex, detectionSensitivity, detector: detectorSettings, frequencyBalance,
+    } }).catch(() => {})
+  }, [latestLoaded, latestPerformance, recordedTake, reviewBarIndex, detectionSensitivity, detectorSettings, frequencyBalance])
+
   /** Import adapters validate their material before installing it here. Never starts a microphone. */
   const openRecordedMaterial = useCallback(async (take: RecordedTake) => {
     const stopping = stop(); const activeGeneration = ++generation.current
@@ -538,5 +582,5 @@ export function usePractice(bpm: number, mode: InterpretationMode, inputGain = D
     finally { setLibraryBusy(false) }
   }, [libraryBusy])
 
-  return { gainAdjustment, manualInputGain, detectionSensitivity, configureSensitivity, exportSavedPair, pairedExportSupported: Boolean(pairedExport.current), importState, importBusy, importError, importNotice, beginImport, cancelImport, importFiles, chooseImportFiles, useImportAudioOnly, confirmImport, nativeImportPicker: Boolean(importer.current.pick), savedBars, libraryBusy, libraryError, libraryNotice, savedBarsSupported, saveSelectedBar, openSavedBar, exportSavedFile, openRecordedMaterial, liveDiagnostics, detectorSettings, configureDetector, resetDetector, detectorSettingsSupported: source !== 'microphone' && !busy, playBar, restartReplay, replayState, recordedTake, reviewBar, reviewBarIndex, reviewBarCount, previousBar, nextBar, reviewCurrentBar, recordingNotice, snapshot, captureTime: now.current, waveform, waveformSource, source, captureMode, busy, error, captureInfo, captureNotice, outputNotice, metronomeActive, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
+  return { frequencyBalance, configureBalance, gainAdjustment, manualInputGain, detectionSensitivity, configureSensitivity, exportSavedPair, pairedExportSupported: Boolean(pairedExport.current), importState, importBusy, importError, importNotice, beginImport, cancelImport, importFiles, chooseImportFiles, useImportAudioOnly, confirmImport, nativeImportPicker: Boolean(importer.current.pick), savedBars, libraryBusy, libraryError, libraryNotice, savedBarsSupported, saveSelectedBar, openSavedBar, exportSavedFile, openRecordedMaterial, liveDiagnostics, detectorSettings, configureDetector, resetDetector, detectorSettingsSupported: source !== 'microphone' && !busy, playBar, restartReplay, replayState, recordedTake, reviewBar, reviewBarIndex, reviewBarCount, previousBar, nextBar, reviewCurrentBar, recordingNotice, snapshot, captureTime: now.current, waveform, waveformSource, source, captureMode, busy, error, captureInfo, captureNotice, outputNotice, metronomeActive, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
 }

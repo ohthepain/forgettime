@@ -31,16 +31,16 @@ describe.skipIf(!process.env.FORGETTIME_NATIVE_HOST_TESTS)('Swift replay PCM thr
     bridge.pollSeconds = 0.25
     bridge.capture.mockReset()
     bridge.stop.mockReset().mockResolvedValue(undefined)
-    bridge.start.mockReset().mockImplementation(async ({ sessionId, sampleRate, samples, detectorSettings }) => {
+    bridge.start.mockReset().mockImplementation(async ({ sessionId, sampleRate, samples, detectorSettings, frequencyBalance = 0 }) => {
       const pcm = Float32Array.from(samples as number[])
       const path = join(directory, 'source.f32')
       writeFileSync(path, Buffer.from(pcm.buffer))
       const polls = Array.from({ length: Math.ceil(4 / bridge.pollSeconds) }, (_, i) => Math.min(sampleRate * 4, Math.round((i + 1) * sampleRate * bridge.pollSeconds)))
-      const frames = execFileSync(binary, [path, String(sampleRate), JSON.stringify(detectorSettings), polls.join(',')],
+      const frames = execFileSync(binary, [path, String(sampleRate), JSON.stringify(detectorSettings), polls.join(','), String(frequencyBalance)],
         { encoding: 'utf8', maxBuffer: 8e6 }).trim().split('\n').map(line => JSON.parse(line))
       let index = 0
       bridge.read.mockImplementation(async () => ({ ...frames[index++], sessionId, status: 'playing', clockQuality: 'estimated' }))
-      return { sessionId, sampleRate, frameCount: pcm.length, diagnosticsSupported: true }
+      return { sessionId, sampleRate, frameCount: pcm.length, diagnosticsSupported: true, frequencyBalanceSupported: true }
     })
   })
   afterEach(() => vi.unstubAllGlobals())
@@ -84,4 +84,22 @@ describe.skipIf(!process.env.FORGETTIME_NATIVE_HOST_TESTS)('Swift replay PCM thr
     expect(bridge.capture).not.toHaveBeenCalled()
     await quiet.stop()
   })
+  it.each([50, 100])('runs native spectral balance %i with immutable originals and a fixed reference', async balance => {
+    const rate = 48000, samples = new Float32Array(rate * 2)
+    for (const t of [.1, .6, 1.1, 1.6]) for (let i = 0; i < 512; i++) samples[Math.round(t * rate) + i] = .2 * Math.sin(i * .7) * Math.exp(-i / 100)
+    const take: RecordedTake = { source: 'native', continuity: 1, origin: .000001, audio: { startFrame: 0, sampleRate: rate, samples }, settings: { bpm: 120, mode: 'straight', startSensitivity: 50 }, onsets: [], results: [], endReason: 'stopped' }
+    let state!: ReplayState
+    const error = vi.fn()
+    const replay = new NativeBarReplay(take, 0, value => { state = value }, error, DEFAULT_DETECTOR_SETTINGS, balance)
+    await replay.start()
+    for (let i = 0; i < 16; i++) await tick(9999)
+    expect(error).not.toHaveBeenCalled()
+    expect(state.frequencyBalance).toBe(balance)
+    expect(state.snapshot.phaseOrigin).toBe(.000001)
+    expect(state.candidates.some(candidate => candidate.evidence?.frequencyBalance === balance)).toBe(true)
+    expect(take.onsets).toEqual([])
+    expect(bridge.capture).not.toHaveBeenCalled()
+    await replay.stop()
+  })
+
 })

@@ -85,6 +85,10 @@ _Avoid_: Detection sensitivity, waveform zoom
 A user adjustment of attack detection for import previews and replay, used to investigate missed or extra detections. Higher settings favor quieter or less obvious attacks; the adjustment does not change live recording or constitute a single signal-level threshold.
 _Avoid_: Input gain, minimum level, live sensitivity
 
+**Detection balance**:
+A review adjustment that weights Energy against Frequency change when deciding whether a new attack occurred. It is separate from Detection sensitivity and does not change live capture.
+_Avoid_: Input gain, instrument classification
+
 **Waveform zoom**:
 Magnification of the displayed audio in time or amplitude. It changes neither the audio samples nor the detection results.
 _Avoid_: Input gain, detection sensitivity

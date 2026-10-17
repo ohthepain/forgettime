@@ -17,13 +17,14 @@ public final class NativeReplayStream {
     public final int sampleRate;
     private final DrumOnsetDetector detector;
     private long cursor = 0;
-    public NativeReplayStream(float[] source, int sampleRate, DrumOnsetDetector.Settings settings) {
+    public NativeReplayStream(float[] source, int sampleRate, DrumOnsetDetector.Settings settings) { this(source, sampleRate, settings, 0); }
+    public NativeReplayStream(float[] source, int sampleRate, DrumOnsetDetector.Settings settings, double frequencyBalance) {
         if (sampleRate < 8000 || sampleRate > 192000 || source.length < 1 || source.length > Math.min(8 * sampleRate, 1536000))
             throw new IllegalArgumentException("Unsupported native replay format or size.");
         for (float value : source) if (!Float.isFinite(value)) throw new IllegalArgumentException("Replay samples must be finite.");
         this.samples = source.clone();
         this.sampleRate = sampleRate;
-        this.detector = new DrumOnsetDetector(sampleRate, settings);
+        this.detector = new DrumOnsetDetector(sampleRate, settings, frequencyBalance);
     }
     public int frameCount() { return samples.length; }
     /** AudioTrack receives this exact source before separate metronome synthesis. */

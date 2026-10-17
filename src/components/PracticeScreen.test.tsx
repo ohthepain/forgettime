@@ -19,7 +19,7 @@ afterEach(() => cleanup())
 
 function practice(): ReturnType<typeof usePractice> {
   return {
-    gainAdjustment: { adjusting: false, limited: false, take: 0 }, manualInputGain: vi.fn(), importState: null, importBusy: false, importError: null, importNotice: null, nativeImportPicker: false,
+    gainAdjustment: { adjusting: false, limited: false, take: 0 }, manualInputGain: vi.fn(), frequencyBalance: 100, configureBalance: vi.fn(), importState: null, importBusy: false, importError: null, importNotice: null, nativeImportPicker: false,
     beginImport: vi.fn(), cancelImport: vi.fn(), importFiles: vi.fn(), chooseImportFiles: vi.fn(), useImportAudioOnly: vi.fn(), confirmImport: vi.fn(),
     savedBars: [], savedBarsSupported: true, libraryBusy: false, libraryError: null, libraryNotice: null,
     exportSavedPair: vi.fn(), pairedExportSupported: false, saveSelectedBar: vi.fn(), openSavedBar: vi.fn(), exportSavedFile: vi.fn(), openRecordedMaterial: vi.fn(),
@@ -266,6 +266,27 @@ it('keeps metronome settings in Settings and removes capture-silence copy from t
     if (show) Object.defineProperty(prototype, 'showModal', show); else Reflect.deleteProperty(prototype, 'showModal')
     if (close) Object.defineProperty(prototype, 'close', close); else Reflect.deleteProperty(prototype, 'close')
   }
+})
+
+it('exposes an independent frequency balance beside sensitivity and disables both during live capture', () => {
+  state = practice()
+  vi.mocked(usePractice).mockImplementation(() => state)
+  const { rerender } = render(<PracticeScreen />)
+  fireEvent.click(screen.getByRole('button', { name: /^Detection sensitivity$/ }))
+  const balance = screen.getByRole('slider', { name: 'Detection balance' }) as HTMLInputElement
+  const sensitivity = screen.getByRole('slider', { name: 'Detection sensitivity' }) as HTMLInputElement
+  expect(balance.value).toBe('100')
+  expect(screen.getByText('100%')).toBeDefined()
+  fireEvent.change(balance, { target: { value: '35' } })
+  expect(state.configureBalance).toHaveBeenCalledWith(35)
+  expect(state.configureSensitivity).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Reset detection balance' }))
+  expect(state.configureBalance).toHaveBeenLastCalledWith(100)
+  state = { ...state, source: 'microphone', detectorSettingsSupported: false }
+  rerender(<PracticeScreen />)
+  expect(balance.disabled).toBe(true)
+  expect(sensitivity.disabled).toBe(true)
+  expect(state.listen).not.toHaveBeenCalled()
 })
 
 

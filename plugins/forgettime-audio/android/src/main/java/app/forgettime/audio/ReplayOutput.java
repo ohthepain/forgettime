@@ -33,8 +33,8 @@ final class ReplayOutput {
     private long lastAudible = 0, lastProgress = System.nanoTime();
     private int routeId = 0;
 
-    ReplayOutput(float[] samples, int rate, DrumOnsetDetector.Settings settings, AudioManager manager) {
-        this.stream = new NativeReplayStream(samples, rate, settings);
+    ReplayOutput(float[] samples, int rate, DrumOnsetDetector.Settings settings, double frequencyBalance, AudioManager manager) {
+        this.stream = new NativeReplayStream(samples, rate, settings, frequencyBalance);
         this.clock = new ReplayOutputClock(rate);
         this.manager = manager;
         int minimum = AudioTrack.getMinBufferSize(rate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_FLOAT);

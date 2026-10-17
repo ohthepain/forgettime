@@ -17,9 +17,10 @@ export function analyzeOnsets(
   sampleRate: number,
   profile: ProfileName,
   startup: StartupMode,
+  frequencyBalance = 0,
 ) {
   const settings = { ...detectionProfiles[profile] };
-  const detector = new OnsetDetector(settings);
+  const detector = new OnsetDetector(settings, frequencyBalance);
   let assumedSilentFrames = 0;
   if (startup === "assumed-silent") {
     // Explicit experiment: twelve silent detector windows before the WAV.
@@ -39,7 +40,7 @@ export function analyzeOnsets(
     );
     detector.drainDiagnostics();
   }
-  return { profile, startup, settings, assumedSilentFrames, onsets };
+  return { profile, startup, settings, frequencyBalance, assumedSilentFrames, onsets };
 }
 
 export interface GridRow {

@@ -13,9 +13,9 @@ function audio() {
 }
 it('recomputes full-source markers on tuning, preserves audio and exposes source timestamps', async () => {
   const source = audio(), copy = source.samples.slice(), place = vi.fn()
-  const { rerender, container } = render(<ImportWaveform audio={source} beatOne={0} place={place} settings={sensitivitySettings(0)} />)
+  const { rerender, container } = render(<ImportWaveform frequencyBalance={0} audio={source} beatOne={0} place={place} settings={sensitivitySettings(0)} />)
   await waitFor(() => expect(screen.getByRole('status').textContent).toContain('1 detected attacks'))
-  rerender(<ImportWaveform audio={source} beatOne={0} place={place} settings={sensitivitySettings(100)} />)
+  rerender(<ImportWaveform frequencyBalance={0} audio={source} beatOne={0} place={place} settings={sensitivitySettings(100)} />)
   await waitFor(() => expect(screen.getByRole('status').textContent).toContain('2 detected attacks'))
   fireEvent.click(screen.getByRole('button', { name: 'Attack at 0.600000 s' }))
   expect(screen.getByText('Selected attack: 0.600000 source seconds.')).toBeDefined()
@@ -33,7 +33,7 @@ function gestureSetup() {
   }
   vi.stubGlobal('PointerEvent', TestPointerEvent)
   const place = vi.fn()
-  const rendered = render(<ImportWaveform audio={audio()} beatOne={0} place={place} settings={sensitivitySettings(50)} />)
+  const rendered = render(<ImportWaveform frequencyBalance={0} audio={audio()} beatOne={0} place={place} settings={sensitivitySettings(50)} />)
   const plot = screen.getByRole('slider', { name: 'Beat one position' })
   vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({ left: 0, width: 512 } as DOMRect)
   const overview = screen.getByRole('slider', { name: 'Visible audio passage' })
@@ -80,12 +80,12 @@ it('suppresses taps and further motion after cancellation, capture loss or an ex
 it('cancels stale detection work when settings or the source change', async () => {
   vi.useFakeTimers()
   const source = audio(), place = vi.fn()
-  const { rerender } = render(<ImportWaveform audio={source} beatOne={0} place={place} settings={sensitivitySettings(100)} />)
-  rerender(<ImportWaveform audio={source} beatOne={0} place={place} settings={sensitivitySettings(0)} />)
+  const { rerender } = render(<ImportWaveform frequencyBalance={0} audio={source} beatOne={0} place={place} settings={sensitivitySettings(100)} />)
+  rerender(<ImportWaveform frequencyBalance={0} audio={source} beatOne={0} place={place} settings={sensitivitySettings(0)} />)
   await act(() => vi.runAllTimersAsync())
   expect(screen.getByRole('status').textContent).toContain('1 detected attacks')
   const silent = { ...source, samples: new Float32Array(rate) }
-  rerender(<ImportWaveform audio={silent} beatOne={0} place={place} settings={sensitivitySettings(100)} />)
+  rerender(<ImportWaveform frequencyBalance={0} audio={silent} beatOne={0} place={place} settings={sensitivitySettings(100)} />)
   await act(() => vi.runAllTimersAsync())
   expect(screen.getByRole('status').textContent).toContain('0 detected attacks')
 })
@@ -170,9 +170,21 @@ it.each([false, true])('selects complete slices in either direction and pins aud
 })
 it('positions green bar markers from the current tempo and phase', () => {
   const source = audio()
-  const { container, rerender } = render(<ImportWaveform audio={source} bpm={300} beatOne={.1} place={vi.fn()} settings={sensitivitySettings(50)} />)
+  const { container, rerender } = render(<ImportWaveform frequencyBalance={0} audio={source} bpm={300} beatOne={.1} place={vi.fn()} settings={sensitivitySettings(50)} />)
   expect(Array.from(container.querySelectorAll('.import-bar-marker'), line => Number(line.getAttribute('x1')))).toEqual([51.2, 460.8])
-  rerender(<ImportWaveform audio={source} bpm={120} beatOne={.2} place={vi.fn()} settings={sensitivitySettings(50)} />)
+  rerender(<ImportWaveform frequencyBalance={0} audio={source} bpm={120} beatOne={.2} place={vi.fn()} settings={sensitivitySettings(50)} />)
   expect(container.querySelectorAll('.import-bar-marker')).toHaveLength(1)
   expect(container.querySelector('.import-bar-marker')?.getAttribute('x1')).toBe('102.4')
+})
+
+it('defaults to frequency change and recomputes when balance changes without moving beat one', async () => {
+  const { frequencyOverlapFixture } = await import('../audio/fixtures/frequency-overlap')
+  const source = { samples: frequencyOverlapFixture(rate).samples, sampleRate: rate, channels: 1 }
+  const place = vi.fn(), settings = sensitivitySettings(50)
+  const { rerender } = render(<ImportWaveform audio={source} beatOne={.2} place={place} settings={settings} />)
+  await waitFor(() => expect(screen.getByRole('status').textContent).toContain('1 detected attacks'))
+  expect(screen.getByRole('button', { name: /Attack at 0\.400/ })).toBeDefined()
+  rerender(<ImportWaveform audio={source} beatOne={.2} place={place} settings={settings} frequencyBalance={0} />)
+  await waitFor(() => expect(screen.getByRole('status').textContent).toContain('0 detected attacks'))
+  expect(place).not.toHaveBeenCalled()
 })

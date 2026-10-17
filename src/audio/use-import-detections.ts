@@ -1,14 +1,15 @@
+import { DEFAULT_FREQUENCY_BALANCE } from './frequency-evidence'
 import { useEffect, useState } from 'react'
 import type { DecodedImportAudio } from './audio-import'
 import type { DetectorSettings } from './detector-contract'
 import { OnsetDetector, type DetectedOnset } from './onset-detector'
 
 /** Analyze from source zero, yielding between chunks so tuning stays interactive. */
-export function useImportDetections(audio: DecodedImportAudio | null, settings: DetectorSettings) {
-  const [result, setResult] = useState<{ audio: DecodedImportAudio; settings: DetectorSettings; hits: DetectedOnset[] } | null>(null)
+export function useImportDetections(audio: DecodedImportAudio | null, settings: DetectorSettings, frequencyBalance = DEFAULT_FREQUENCY_BALANCE) {
+  const [result, setResult] = useState<{ audio: DecodedImportAudio; settings: DetectorSettings; frequencyBalance: number; hits: DetectedOnset[] } | null>(null)
   useEffect(() => {
     if (!audio) return
-    const detector = new OnsetDetector(settings), hits: DetectedOnset[] = []
+    const detector = new OnsetDetector(settings, frequencyBalance), hits: DetectedOnset[] = []
     let offset = 0, cancelled = false
     let timer: ReturnType<typeof setTimeout>
     const step = () => {
@@ -18,11 +19,11 @@ export function useImportDetections(audio: DecodedImportAudio | null, settings: 
       detector.drainDiagnostics()
       offset = end
       if (offset < audio.samples.length) timer = setTimeout(step, 0)
-      else setResult({ audio, settings, hits })
+      else setResult({ audio, settings, frequencyBalance, hits })
     }
     timer = setTimeout(step, 0)
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [audio, settings])
-  const current = result?.audio === audio && result.settings === settings
+  }, [audio, settings, frequencyBalance])
+  const current = result?.audio === audio && result.settings === settings && result.frequencyBalance === frequencyBalance
   return { hits: current ? result.hits : [], pending: Boolean(audio) && !current }
 }

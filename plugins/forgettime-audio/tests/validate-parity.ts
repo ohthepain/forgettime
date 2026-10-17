@@ -1,3 +1,4 @@
+import { frequencyOverlapFixture } from '../../../src/audio/fixtures/frequency-overlap'
 /** Host-side port check with synthetic PCM and supplied WAVs, not physical-device validation. */
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync, readFileSync } from "node:fs";
@@ -99,10 +100,11 @@ try {
       expectedTimes?: number[],
       settings: DetectorSettings = DEFAULT_DETECTOR_SETTINGS,
       associationToleranceSeconds = 0.004,
+      frequencyBalance = 0,
     ) {
       const path = join(temporary, `${name}-${rate}.f32`);
       writeFileSync(path, Buffer.from(pcm.buffer));
-      const detector = new OnsetDetector(settings);
+      const detector = new OnsetDetector(settings, frequencyBalance);
       const waveform = new WaveformEnvelopeCapture();
       const envelope: WaveformEnvelope[] = [];
       const expected: DetectedOnset[] = [];
@@ -130,6 +132,7 @@ try {
         settings.contrastRatio,
         settings.minSeparationMs,
         settings.recoverySeconds,
+        frequencyBalance,
       ].map(String);
       for (const [language, actual] of [
         [
@@ -196,7 +199,10 @@ try {
         }
       }
     }
+    const overlap = frequencyOverlapFixture(rate);
+    compare("frequency-overlap", overlap.samples, false, overlap.expectedTimes, DEFAULT_DETECTOR_SETTINGS, .006, 100);
     compare("percussion", samples);
+    for (const balance of [50, 100]) compare(`percussion-balance-${balance}`, samples, false, undefined, DEFAULT_DETECTOR_SETTINGS, .004, balance);
     if (rate === 44100) {
       // Real supplied render plus a deliberate startup lead-in. Native/shared
       // parity here is offline behavior, not a physical microphone benchmark.
@@ -217,6 +223,7 @@ try {
                 ? Array.from({ length: 8 }, (_, i) => i * 0.25 + lead / rate)
                 : undefined;
             compare(`${name}-${lead}-${profile}`, pcm, false, times, settings, 0.02);
+            for (const balance of [50, 100]) compare(`${name}-${lead}-${profile}-balance-${balance}`, pcm, false, times, settings, .02, balance);
           }
         }
       }
@@ -232,6 +239,7 @@ try {
       mixed[i] = samples[i] + rumble[i] * 0.3;
     }
     compare("ambient-rumble", rumble, true);
+    for (const balance of [50, 100]) compare(`ambient-rumble-balance-${balance}`, rumble, true, undefined, DEFAULT_DETECTOR_SETTINGS, .004, balance);
     compare("percussion-with-rumble", mixed);
     for (const [name, fixture] of [
       [
@@ -244,7 +252,10 @@ try {
       ["softer-accent-follow-ups", accentFollowUpFixture(rate)],
       ["room-noise-after-accent", roomNoiseAfterAccentFixture(rate)],
     ] as const)
-      compare(name, fixture.samples, false, fixture.expectedTimes);
+      {
+        compare(name, fixture.samples, false, fixture.expectedTimes);
+        for (const balance of [50, 100]) compare(`${name}-balance-${balance}`, fixture.samples, false, fixture.expectedTimes, DEFAULT_DETECTOR_SETTINGS, .004, balance);
+      }
   }
 } finally {
   rmSync(temporary, { recursive: true, force: true });

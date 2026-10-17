@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
-export function DetectionSensitivity({ value, change, disabled }: { value: number | null; change: (value: number) => void; disabled: boolean }) {
+export function DetectionSensitivity({ value, change, disabled, frequencyBalance = 100, changeBalance }: { frequencyBalance?: number; changeBalance?: (value: number) => void; value: number | null; change: (value: number) => void; disabled: boolean }) {
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -16,7 +16,12 @@ export function DetectionSensitivity({ value, change, disabled }: { value: numbe
       <input id="detection-sensitivity" type="range" min={0} max={100} value={value ?? 50} disabled={disabled} onChange={event => change(Number(event.target.value))} />
       <div className="sensitivity-scale"><span>Fewer detections</span><span>More detections</span></div>
       <button disabled={disabled} onClick={() => change(50)}>Reset detection sensitivity</button>
+      <div className="setting-label"><label htmlFor="detection-balance">Detection balance</label><output htmlFor="detection-balance">{frequencyBalance}%</output></div>
+      <input id="detection-balance" type="range" min={0} max={100} value={frequencyBalance} disabled={disabled} onChange={event => changeBalance?.(Number(event.target.value))} />
+      <div className="sensitivity-scale"><span>Energy</span><span>Frequency change</span></div>
+      <button disabled={disabled} onClick={() => changeBalance?.(100)}>Reset detection balance</button>
       <p>Default: 50. Tunes import and replay only. Higher settings favor quieter attacks and may add false detections.</p>
+      <p>Balance defaults to 100% Frequency change. Both controls affect import and replay only.</p>
       {disabled && <p>Stop microphone capture before tuning recorded audio.</p>}
     </div>}
   </div>

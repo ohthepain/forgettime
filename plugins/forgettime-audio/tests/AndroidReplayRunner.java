@@ -66,7 +66,7 @@ public class AndroidReplayRunner {
         java.nio.ByteBuffer bytes = java.nio.ByteBuffer.wrap(java.nio.file.Files.readAllBytes(java.nio.file.Path.of(args[0]))).order(java.nio.ByteOrder.LITTLE_ENDIAN);
         float[] samples = new float[bytes.remaining() / 4]; for (int i = 0; i < samples.length; i++) samples[i] = bytes.getFloat();
         int rate = Integer.parseInt(args[1]), step = Integer.parseInt(args[6]), loops = Integer.parseInt(args[7]);
-        var stream = new NativeReplayStream(samples, rate, new DrumOnsetDetector.Settings(1, Double.parseDouble(args[2]), Double.parseDouble(args[3]), Double.parseDouble(args[4]), Double.parseDouble(args[5])));
+        var stream = new NativeReplayStream(samples, rate, new DrumOnsetDetector.Settings(1, Double.parseDouble(args[2]), Double.parseDouble(args[3]), Double.parseDouble(args[4]), Double.parseDouble(args[5])), args.length > 8 ? Double.parseDouble(args[8]) : 0);
         long end = (long) samples.length * loops;
         for (long cursor = 0; cursor < end;) {
             cursor = Math.min(end, cursor + step);

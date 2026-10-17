@@ -1,3 +1,4 @@
+import { normalizeFrequencyBalance } from './frequency-evidence'
 import { ForgettimeAudio, type NativeReplayFrame, type NativeOnset, type NativeMetronomePlan } from 'forgettime-audio'
 import { DEFAULT_DETECTOR_SETTINGS, MAX_DIAGNOSTIC_CANDIDATES, normalizeDetectorSettings, type DetectorSettings } from './detector-contract'
 import { TimingEngine, type ResolvedHit } from './engine'
@@ -33,7 +34,8 @@ export class NativeBarReplay implements BarReplay {
   private dropped = 0
   private pending: ResolvedHit[] = []
 
-  constructor(take: RecordedTake, index: number, private onState: (state: ReplayState) => void, private onError: (message: string) => void, settings: DetectorSettings = DEFAULT_DETECTOR_SETTINGS) {
+  constructor(take: RecordedTake, index: number, private onState: (state: ReplayState) => void, private onError: (message: string) => void, settings: DetectorSettings = DEFAULT_DETECTOR_SETTINGS, private frequencyBalance = 0) {
+    this.frequencyBalance = normalizeFrequencyBalance(frequencyBalance)
     this.bar = recordedBar(take, index)
     if (!this.bar.complete || !this.bar.audio.samples.length) throw new Error('Loop playback needs a complete recorded bar. Unrecorded audio cannot be replayed.')
     const { sampleRate, samples } = this.bar.audio
@@ -54,9 +56,9 @@ export class NativeBarReplay implements BarReplay {
   async start() {
     try {
       const { sampleRate, samples } = this.bar.audio
-      const result = await ForgettimeAudio.startReplay({ sessionId: this.sessionId, sampleRate, samples: Array.from(samples), detectorSettings: this.settings })
+      const result = await ForgettimeAudio.startReplay({ sessionId: this.sessionId, sampleRate, samples: Array.from(samples), detectorSettings: this.settings, frequencyBalance: this.frequencyBalance })
       if (this.stopped) { await ForgettimeAudio.stopReplay({ sessionId: this.sessionId }); return }
-      if (result.sessionId !== this.sessionId || result.sampleRate !== sampleRate || result.frameCount !== samples.length || !result.diagnosticsSupported) {
+      if (result.sessionId !== this.sessionId || result.sampleRate !== sampleRate || result.frameCount !== samples.length || !result.diagnosticsSupported || (this.frequencyBalance > 0 && !result.frequencyBalanceSupported)) {
         throw new Error('Native replay capability changed. Rebuild and sync the native app.')
       }
       this.publish()
@@ -134,7 +136,7 @@ export class NativeBarReplay implements BarReplay {
     const plan = this.coach.update({ ...snapshot, lastHitTime: time }, time, this.metronome).plan
     this.latestPlan = plan
     void this.sendPlan()
-    this.onState({ settings: this.settings, run: this.run, time, iteration, progress: position, snapshot,
+    this.onState({ settings: this.settings, frequencyBalance: this.frequencyBalance, run: this.run, time, iteration, progress: position, snapshot,
       onsets: this.onsets.slice(), results: this.results.slice(), candidates: this.candidates.slice(), diagnosticsDropped: this.dropped, metronomeActive: Boolean(plan) })
   }
   private async sendPlan() {

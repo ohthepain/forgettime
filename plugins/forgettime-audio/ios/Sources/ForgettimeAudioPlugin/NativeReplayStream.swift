@@ -8,13 +8,13 @@ final class NativeReplayStream {
     private let detector: DrumOnsetDetector
     private var cursor: Int64 = 0
 
-    init(sampleRate: Double, samples: [Float], settings: DetectorSettings) throws {
-        guard sampleRate.isFinite, sampleRate.rounded() == sampleRate, sampleRate >= 8000, sampleRate <= 192000,
+    init(sampleRate: Double, samples: [Float], settings: DetectorSettings, frequencyBalance: Double = 0) throws {
+        guard frequencyBalance.isFinite, frequencyBalance >= 0, frequencyBalance <= 100, sampleRate.isFinite, sampleRate.rounded() == sampleRate, sampleRate >= 8000, sampleRate <= 192000,
               !samples.isEmpty, samples.count <= min(Int(sampleRate * 8), 1536000), samples.allSatisfy({ $0.isFinite })
         else { throw ReplayFailure.invalidSource }
         self.sampleRate = sampleRate
         self.samples = samples
-        self.detector = DrumOnsetDetector(sampleRate: sampleRate, settings: settings)
+        self.detector = DrumOnsetDetector(sampleRate: sampleRate, settings: settings, frequencyBalance: frequencyBalance)
     }
 
     func read(audibleFrame: Int64) throws -> [String: Any] {

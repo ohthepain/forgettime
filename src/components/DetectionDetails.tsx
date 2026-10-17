@@ -26,9 +26,16 @@ export function DetectionDetails({ open, toggle, settings, originalSettings, can
       {selected && m && <div className="candidate-inspection" aria-live="polite"><h3>{!selected.accepted ? 'Detector rejected' : selected.acquisition === 'below-start-level' || selected.acquisition === 'low-confidence' ? 'Detector accepted · live gate rejected' : selected.uncertain ? 'Detector accepted · rhythmic interpretation uncertain' : 'Detector accepted'}</h3>
         <p>Candidate {selected.id} · {selected.time.toFixed(3)} source seconds{selected.iteration === undefined ? '' : ` · loop ${selected.iteration + 1}`}</p>
         <p>{selected.reasons.length ? selected.reasons.join(', ') : selected.acquisition === 'below-start-level' ? 'Below live sensitivity level' : selected.acquisition === 'low-confidence' ? 'Insufficient confidence to start' : selected.uncertain ? 'No precise timing score for this attack' : selected.acquisition === 'started' ? 'Established beat 1; this reference hit has no timing score' : 'Passed detector checks'}</p>
+        {selected.evidence && <p>Attack acceptance uses the blended evidence below. RMS rise, ratio, contrast and rearming show the original energy measurements for comparison.</p>}
         <table aria-label="Candidate measurements"><thead><tr><th>Measurement</th><th>Observed</th><th>Required</th></tr></thead><tbody>
           {selected.acquisitionGate && <><tr><th>Live peak</th><td>{selected.strength.toFixed(4)}</td><td>≥ {selected.acquisitionGate.minimumStrength.toFixed(4)}</td></tr><tr><th>Live confidence</th><td>{selected.confidence.toFixed(2)}</td><td>≥ {selected.acquisitionGate.minimumConfidence}</td></tr></>}
           <tr><th>RMS level</th><td>{m.rms.toFixed(4)}</td><td>≥ {m.minimumLevel.toFixed(4)}</td></tr>
+          {selected.evidence && <>
+            <tr><th>Frequency change weight</th><td>{selected.evidence.frequencyBalance}%</td><td>Import/replay balance</td></tr>
+            <tr><th>Blended attack evidence</th><td>{selected.evidence.blendedScore.toFixed(2)}</td><td>≥ 1</td></tr>
+            <tr><th>Energy evidence</th><td>{selected.evidence.energyScore.toFixed(2)}</td><td>Weighted by balance</td></tr>
+            <tr><th>Frequency evidence</th><td>{selected.evidence.frequencyScore.toFixed(2)}</td><td>{selected.evidence.bandHz} Hz band</td></tr>
+          </>}
           <tr><th>RMS rise</th><td>{m.rise.toFixed(4)}</td><td>≥ {m.minimumRise}</td></tr>
           <tr><th>Rise ratio</th><td>{m.ratio.toFixed(2)}×</td><td>≥ {m.minimumRatio}×</td></tr>
           <tr><th>Contrast</th><td>{m.contrast.toFixed(2)}×</td><td>≥ {m.minimumContrast}×</td></tr>

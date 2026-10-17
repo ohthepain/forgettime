@@ -211,6 +211,8 @@ it('delivers each newly resolved score once even when presentation callbacks spa
 })
 it('restarts a selected replay with real detector settings while preserving its PCM, grid and original results', async () => {
   const { result } = await take(997, 48000, undefined, 0.2)
+  await act(() => result.current.stop())
+  await act(() => result.current.configureBalance(0))
   const original = result.current.recordedTake!
   const samples = result.current.reviewBar!.audio.samples.slice()
   await act(() => result.current.playBar())
@@ -242,4 +244,25 @@ it('keeps the beat in 1–4 when imported musical beat one starts a fraction aft
   advance(.06)
   expect(hook.result.current.snapshot.beat).toBe(1)
   expect(hook.result.current.recordedTake!.origin).toBe(.000005)
+})
+
+it('defaults review to frequency change and restarts on balance changes without changing live defaults, audio or reference', async () => {
+  const { result } = await take()
+  const original = result.current.recordedTake!
+  expect(result.current.frequencyBalance).toBe(100)
+  await act(() => result.current.playBar())
+  advance(2.8)
+  const firstRun = result.current.replayState!.run
+  expect(result.current.replayState!.frequencyBalance).toBe(100)
+  expect(result.current.replayState!.candidates.some(candidate => candidate.evidence?.frequencyBalance === 100)).toBe(true)
+  await act(() => result.current.configureBalance(35))
+  expect(result.current.replayState!.run).toBe(firstRun + 1)
+  expect(result.current.replayState!.frequencyBalance).toBe(35)
+  advance(2.8)
+  expect(result.current.replayState!.candidates.some(candidate => candidate.evidence?.frequencyBalance === 35)).toBe(true)
+  expect(result.current.snapshot.phaseOrigin).toBe(0)
+  expect(result.current.recordedTake).toBe(original)
+  await act(() => result.current.listen())
+  expect(hardware.capture).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ detectorSettings: { version: 1, minimumRms: .002, contrastRatio: 1.8, minSeparationMs: 18, recoverySeconds: 4 } }))
+  expect(hardware.capture.mock.calls.at(-1)![1]).not.toHaveProperty('frequencyBalance')
 })

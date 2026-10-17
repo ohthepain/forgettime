@@ -77,11 +77,11 @@ public final class ForgettimeAudioPlugin: CAPPlugin, CAPBridgedPlugin {
                 guard let rate = call.getDouble("sampleRate"), let values = call.getArray("samples", Double.self),
                       values.count <= 1536000 else { throw ReplayFailure.invalidSource }
                 let output = try NativeReplayOutput(sessionId: id, sampleRate: rate, samples: values.map(Float.init),
-                    settings: try DetectorSettings(call.getObject("detectorSettings") ?? [:]))
+                    settings: try DetectorSettings(call.getObject("detectorSettings") ?? [:]), frequencyBalance: call.getDouble("frequencyBalance") ?? 0)
                 self.replay = output
                 self.replayTerminal = nil
                 try output.start()
-                call.resolve(["sessionId": id, "sampleRate": rate, "frameCount": values.count, "diagnosticsSupported": true])
+                call.resolve(["sessionId": id, "sampleRate": rate, "frameCount": values.count, "diagnosticsSupported": true, "frequencyBalanceSupported": true])
             } catch {
                 self.stopReplayOutput(reason: error.localizedDescription, error: true)
                 call.reject(error.localizedDescription)

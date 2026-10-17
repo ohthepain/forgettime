@@ -12,7 +12,7 @@ public class ParityRunner {
         DrumOnsetDetector.Settings settings = args.length >= 7
             ? new DrumOnsetDetector.Settings(1, Double.parseDouble(args[3]), Double.parseDouble(args[4]), Double.parseDouble(args[5]), Double.parseDouble(args[6]))
             : new DrumOnsetDetector.Settings();
-        DrumOnsetDetector detector = new DrumOnsetDetector(rate, settings);
+        DrumOnsetDetector detector = new DrumOnsetDetector(rate, settings, args.length >= 8 ? Double.parseDouble(args[7]) : 0);
         WaveformEnvelopeCapture waveform = new WaveformEnvelopeCapture(rate);
         boolean showWaveform = args.length > 2 && args[2].equals("waveform");
         long frame = 0;

@@ -11,6 +11,8 @@ pnpm audio:fixtures:check
 pnpm audio:compare "beat 1 simple dyn 120.wav"
 ```
 
+For experimental recorded-material frequency evidence, add `--frequency-balance=100` (or another integer 0–100). Omission retains the live/legacy energy baseline at 0. Reports include the balance and the frequency-evidence source hash. Compare both modes on the same immutable fixture, keeping captured startup and assumed silent prehistory separate.
+
 The comparator reads the fixture's declared BPM and origin and compares the current default and conservative (0.006 minimum RMS) profiles. It prints every accepted detection, extra and confirmed missing event in one table per run, using `beat.sixteenth` positions and signed milliseconds against the render grid. Start sensitivity and rhythm scoring are outside this onset comparison.
 
 To investigate the separate first-sample startup limitation:

@@ -27,12 +27,14 @@ export function ImportWaveform({
   bpm = 100,
   place,
   settings,
+  frequencyBalance = 100,
 }: {
   audio: DecodedImportAudio;
   beatOne: number;
   bpm?: number;
   place: (time: number) => void;
   settings: DetectorSettings;
+  frequencyBalance?: number;
 }) {
   const overviewSelectionId = useId();
   const duration = audio.samples.length / audio.sampleRate,
@@ -55,7 +57,7 @@ export function ImportWaveform({
   useEffect(() => {
     stopPreview(); setPreviewError(null); setHovered(null); setFocusedMarker(null);
     return stopPreview;
-  }, [audio, settings, view.start, view.span, stopPreview]);
+  }, [audio, settings, frequencyBalance, view.start, view.span, stopPreview]);
   useEffect(() => {
     const visibility = () => { if (document.hidden) stopPreview() };
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') stopPreview() };
@@ -185,8 +187,8 @@ export function ImportWaveform({
     pointers.current.clear();
     drag.current = null;
   }, [audio, duration]);
-  const { hits, pending } = useImportDetections(audio, settings);
-  useEffect(() => { setRegion(null); }, [audio, settings]);
+  const { hits, pending } = useImportDetections(audio, settings, frequencyBalance);
+  useEffect(() => { setRegion(null); }, [audio, settings, frequencyBalance]);
   function sliceAt(time: number) {
     const start = hits.filter(hit => hit.time <= time).at(-1)?.time ?? 0;
     return { start, end: hits.find(hit => hit.time > time)?.time ?? duration };

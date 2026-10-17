@@ -2,6 +2,7 @@ import type { PluginListenerHandle } from '@capacitor/core';
 /** Wire mirror of src/audio/detector-contract.ts v1; parity tests guard semantics. */
 export interface NativeDetectorSettings { version: 1; minimumRms: number; contrastRatio: number; minSeparationMs: number; recoverySeconds: number }
 export interface NativeCandidate {
+  evidence?: { version: 1; frequencyBalance: number; energyScore: number; frequencyScore: number; blendedScore: number; bandHz: number };
   version: 1; id: number; time: number; strength: number; confidence: number; accepted: boolean;
   reasons: ('warming-up' | 'level' | 'rise' | 'contrast' | 'rearming' | 'separation')[];
   settings: NativeDetectorSettings;
@@ -59,7 +60,7 @@ export interface ForgettimeAudioPlugin extends NativeFilePlugin {
   start(options?: { detectorSettings?: NativeDetectorSettings; inputGain?: number }): Promise<{ sessionId?: string; sampleRate: number; timestampQuality: 'hardware' | 'sample-clock'; inputGainSupported?: boolean; diagnosticsSupported?: boolean; analysis?: { implementation: string; version: string } }>;
   setInputGain(options: { sessionId: string; inputGain: number }): Promise<void>;
   setDetectorSettings(options: { sessionId: string; detectorSettings: NativeDetectorSettings }): Promise<void>;
-  startReplay(options: { sessionId: string; sampleRate: number; samples: number[]; detectorSettings: NativeDetectorSettings }): Promise<{ sessionId: string; sampleRate: number; frameCount: number; diagnosticsSupported: boolean }>;
+  startReplay(options: { frequencyBalance?: number; sessionId: string; sampleRate: number; samples: number[]; detectorSettings: NativeDetectorSettings }): Promise<{ sessionId: string; sampleRate: number; frameCount: number; diagnosticsSupported: boolean; frequencyBalanceSupported?: boolean }>;
   readReplay(options: { sessionId: string }): Promise<NativeReplayFrame>;
   stopReplay(options: { sessionId: string }): Promise<void>;
   setReplayMetronome(options: { sessionId: string; plan: NativeMetronomePlan | null }): Promise<void>;

@@ -14,11 +14,12 @@ import {
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const [input, ...flags] = process.argv.slice(2);
-if (!input || flags.some((flag) => flag !== "--assume-silence") || flags.length > 1) {
+if (!input || flags.some((flag) => flag !== "--assume-silence" && !/^--frequency-balance=(0|[1-9][0-9]?|100)$/.test(flag))) {
   throw new Error(
-    'Usage: pnpm audio:compare "fixture.wav" [--assume-silence] (adds a separately labelled silent-prehistory experiment)',
+    'Usage: pnpm audio:compare "fixture.wav" [--assume-silence] [--frequency-balance=0..100] (adds a separately labelled silent-prehistory experiment)',
   );
 }
+const frequencyBalance = Number(flags.find(flag => flag.startsWith("--frequency-balance="))?.split("=")[1] ?? 0);
 const filename = basename(input.endsWith(".wav") ? input : `${input}.wav`);
 if (
   input.includes("/") &&
@@ -32,6 +33,7 @@ if (
 const fixture = readFixture(join(root, "test-data/audio"), filename);
 const sources = [
   "src/audio/onset-detector.ts",
+  "src/audio/frequency-evidence.ts",
   "src/audio/detector-contract.ts",
   "scripts/lib/wav.ts",
   "scripts/lib/audio-comparison.ts",
@@ -48,7 +50,7 @@ const startupModes: StartupMode[] = flags.includes("--assume-silence")
   : ["captured"];
 const runs = startupModes.flatMap((startup) =>
   (Object.keys(detectionProfiles) as ProfileName[]).map((profile) => {
-    const result = analyzeOnsets(fixture.samples, fixture.sampleRate, profile, startup);
+    const result = analyzeOnsets(fixture.samples, fixture.sampleRate, profile, startup, frequencyBalance);
     return { ...result, rows: gridRows(result.onsets, fixture.metadata) };
   }),
 );
@@ -87,7 +89,7 @@ console.log(
 );
 for (const run of runs) {
   console.log(
-    `\n${run.profile} / ${run.startup === "captured" ? "production startup" : "EXPERIMENT: assumed silent prehistory"}: ${run.onsets.length} detections; minimum RMS ${run.settings.minimumRms}`,
+    `\n${run.profile} / ${run.startup === "captured" ? "production startup" : "EXPERIMENT: assumed silent prehistory"}: ${run.onsets.length} detections; ${run.frequencyBalance}% frequency change; minimum RMS ${run.settings.minimumRms}`,
   );
   console.log(formatGridTable(run.rows));
 }
