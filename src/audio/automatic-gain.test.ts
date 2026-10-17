@@ -1,0 +1,35 @@
+import { expect, it } from 'vite-plus/test'
+import { AutomaticGain } from './automatic-gain'
+import { normalizeInputGain } from './input-gain'
+it('requires more than 125%, ramps for a second and targets 90%', () => {
+  const control = new AutomaticGain()
+  control.observe(new Float32Array([1.25]), 2, 2, 0)
+  expect(control.adjusting).toBe(false)
+  control.observe(new Float32Array([-1.5]), 2, 2, 100)
+  expect(control.tick(600)).toBeCloseTo(1.6)
+  expect(control.tick(1100)).toBeCloseTo(1.2)
+  expect(control.adjusting).toBe(false)
+})
+it('accounts for packet gain and lowers the target for louder peaks without restarting the second', () => {
+  const control = new AutomaticGain()
+  control.observe(new Float32Array([2]), 2, 2, 0)
+  control.observe(new Float32Array([1.5]), 1, 1.5, 500)
+  expect(control.tick(1000)).toBeCloseTo(.6)
+  control.observe(new Float32Array([1.5]), .6, .6, 1100)
+  expect(control.tick(2100)).toBeCloseTo(.36)
+})
+it('respects the new floor, manual override, fresh takes and stopping', () => {
+  const control = new AutomaticGain()
+  expect(normalizeInputGain(.05)).toBe(.1)
+  control.observe(new Float32Array([20]), 1, 1, 0)
+  expect(control.limited).toBe(true)
+  expect(control.tick(1000)).toBeCloseTo(.1)
+  control.manual()
+  control.observe(new Float32Array([2]), 1, 1, 1100)
+  expect(control.adjusting).toBe(false)
+  control.reset()
+  control.observe(new Float32Array([2]), 1, 1, 1200)
+  expect(control.adjusting).toBe(true)
+  control.stop()
+  expect(control.tick(2200)).toBeNull()
+})

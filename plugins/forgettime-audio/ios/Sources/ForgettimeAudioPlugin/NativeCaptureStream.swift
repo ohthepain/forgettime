@@ -8,6 +8,7 @@ final class NativeCaptureStream {
         let samples: [Float]
         let time: Double
         let level: Double
+        let inputGain: Double
         let onsets: [DrumOnsetDetector.Onset]
         let waveform: [WaveformEnvelopeCapture.Point]
         let diagnostics: [String: Any]
@@ -21,7 +22,7 @@ final class NativeCaptureStream {
     private let deliveryLock = NSLock()
     private var inputGain: Double = 1
     func setInputGain(_ gain: Double) throws {
-        guard gain.isFinite, gain >= 0.25, gain <= 8 else { throw CaptureFailure.discontinuity }
+        guard gain.isFinite, gain >= 0.1, gain <= 8 else { throw CaptureFailure.discontinuity }
         deliveryLock.lock(); inputGain = gain; deliveryLock.unlock()
     }
     private var acknowledgedFrame: Int64 = 0
@@ -76,7 +77,7 @@ final class NativeCaptureStream {
             if let point = waveform.process(sample: sample, time: time) { points.append(point) }
         }
         return Packet(startFrame: start, samples: pcm, time: detector.processedThrough,
-                      level: min(1, sqrt(energy / Double(max(1, frameCount)))), onsets: onsets, waveform: points, diagnostics: detector.drainDiagnostics())
+                      level: min(1, sqrt(energy / Double(max(1, frameCount)))), inputGain: gain, onsets: onsets, waveform: points, diagnostics: detector.drainDiagnostics())
     }
 }
 

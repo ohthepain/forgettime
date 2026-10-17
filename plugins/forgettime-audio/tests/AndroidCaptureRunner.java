@@ -35,6 +35,10 @@ public class AndroidCaptureRunner {
         amplified.setInputGain(0.5);
         NativeCaptureStream.Batch quiet = amplified.process(new short[] {16384}, 1);
         require(quiet.startFrame == 3 && quiet.samples[0] == 0.25 && loud.samples[0] == 1, "Gain changes only future PCM without resetting the clock");
+        amplified.setInputGain(0.1);
+        NativeCaptureStream.Batch minimum = amplified.process(new short[] {16384}, 1);
+        require(minimum.inputGain == 0.1 && loud.inputGain == 2 && quiet.inputGain == 0.5, "Packets retain applied gain across later adjustments");
+        require(minimum.samples[0] == (float) 0.05 && minimum.startFrame == 4, "New minimum gain preserves the sample clock");
         System.out.println("Android PCM source, sample clock and bounded bridge contracts passed");
     }
     private static void fixture(int rate) {

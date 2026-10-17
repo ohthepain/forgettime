@@ -236,6 +236,7 @@ public final class ForgettimeAudioPlugin: CAPPlugin, CAPBridgedPlugin {
                             "sampleRate": format.sampleRate,
                             "pcm": ["startFrame": packet.startFrame, "samples": packet.samples],
                             "level": packet.level,
+                            "inputGain": packet.inputGain,
                             "diagnostics": packet.diagnostics,
                             "analysis": ["implementation": "forgettime-swift-onset", "version": "1"],
                             "onsets": packet.onsets.map { ["time": $0.time, "strength": $0.strength, "confidence": $0.confidence] },

@@ -86,7 +86,7 @@ export function PracticeScreen() {
     </header>
     <section className="tempo-card" aria-label="Drum timing practice">
       <div className="card-heading"><h1>Tempo</h1><div className="card-recording">{(source === 'simulation' || source === 'replay' || (review && source === 'off')) && <span className="practice-label">{source === 'simulation' ? 'SIMULATION' : source === 'replay' ? 'BAR REPLAY' : 'BAR REVIEW'}</span>}
-        <RecordControl active={running} auto={practice.captureMode === 'auto'} busy={busy} disabled={importPending}
+        <RecordControl gainAdjustment={practice.gainAdjustment} manualInputGain={practice.manualInputGain} active={running} auto={practice.captureMode === 'auto'} busy={busy} disabled={importPending}
           microphone={practice.canSelectInput ? { devices: practice.inputDevices, deviceId: practice.deviceId, select: practice.setDeviceId } : undefined}
           stopLabel={busy ? 'Cancel microphone' : source === 'simulation' ? 'Stop simulation' : source === 'replay' ? 'Pause playback' : 'Stop listening'} listen={practice.listen} stop={practice.stop} />
       </div></div>

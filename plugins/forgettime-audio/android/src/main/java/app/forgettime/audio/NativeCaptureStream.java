@@ -13,6 +13,7 @@ public final class NativeCaptureStream {
         public DrumOnsetDetector.Diagnostics diagnostics;
         public double time;
         public double level;
+        public double inputGain;
         Batch(long startFrame, int count) { this.startFrame = startFrame; this.samples = new double[count]; }
     }
     private final int sampleRate;
@@ -20,7 +21,7 @@ public final class NativeCaptureStream {
     private final WaveformEnvelopeCapture waveform;
     private double inputGain = 1;
     public synchronized void setInputGain(double gain) {
-        if (!Double.isFinite(gain) || gain < 0.25 || gain > 8) throw new IllegalArgumentException("Invalid microphone gain.");
+        if (!Double.isFinite(gain) || gain < 0.1 || gain > 8) throw new IllegalArgumentException("Invalid microphone gain.");
         inputGain = gain;
     }
     private long frame;
@@ -42,6 +43,7 @@ public final class NativeCaptureStream {
             throw new IllegalStateException("Audio review is not keeping up; recording stopped. Restart listening.");
         }
         Batch batch = new Batch(frame, count);
+        batch.inputGain = inputGain;
         double energy = 0;
         for (int i = 0; i < count; i++) {
             double sample = (float) (input[i] / 32768.0 * inputGain);

@@ -104,3 +104,8 @@ try amplified.setInputGain(0.5)
 let quiet = try amplified.process(frameCount: 1, sampleTime: 103, sampleRate: 48000, channelCount: 1) { _, _ in 0.5 }
 precondition(quiet.startFrame == 3 && quiet.samples == [0.25] && loud.samples == [1, -1, 1.5])
 print("Swift microphone gain changes future retained PCM without clipping or resetting the source clock")
+
+try amplified.setInputGain(0.1)
+let minimum = try amplified.process(frameCount: 1, sampleTime: 104, sampleRate: 48000, channelCount: 1) { _, _ in 0.5 }
+precondition(minimum.inputGain == 0.1 && loud.inputGain == 2 && quiet.inputGain == 0.5)
+precondition(minimum.samples == [Float(0.05)] && minimum.startFrame == 4)

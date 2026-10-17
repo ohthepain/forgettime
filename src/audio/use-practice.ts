@@ -1,3 +1,5 @@
+import { AutomaticGain } from './automatic-gain'
+import { usePreferences } from '../lib/preferences'
 import { createNativeBarFiles } from './native-files'
 import { browserAudioImport, prepareAudioImport, decodeImportAudio, importedMaterial, type ImportFile, type ImportState } from './audio-import'
 import { createBarFiles, restoreBarFiles } from './bar-files'
@@ -21,6 +23,16 @@ import { TakeRecorder, recordedBar, recordedBarCount, initialReviewBar, type Rec
 type Source = 'off' | 'microphone' | 'simulation' | 'replay'
 export function usePractice(bpm: number, mode: InterpretationMode, inputGain = DEFAULT_INPUT_GAIN, metronomeOptions = DEFAULT_METRONOME, fileOptions: BarFileOptions = {}) {
   const startSensitivity = DEFAULT_START_SENSITIVITY // Legacy sidecar field, not an active live control.
+  const automaticGain = useRef(new AutomaticGain())
+  const [gainAdjustment, setGainAdjustment] = useState({ adjusting: false, limited: false, take: 0 })
+  const gainTimer = useRef<ReturnType<typeof setInterval> | null>(null)
+  function stopGainAdjustment() {
+    if (gainTimer.current !== null) clearInterval(gainTimer.current)
+    gainTimer.current = null
+    automaticGain.current.stop()
+    setGainAdjustment(value => ({ ...value, adjusting: false }))
+  }
+  function manualInputGain() { automaticGain.current.manual(); stopGainAdjustment() }
   const gain = useRef(inputGain)
   gain.current = inputGain
   const [detectionSensitivity, setDetectionSensitivity] = useState<number | null>(DEFAULT_DETECTION_SENSITIVITY)
@@ -63,7 +75,12 @@ export function usePractice(bpm: number, mode: InterpretationMode, inputGain = D
     setReviewBarIndex(initialReviewBar(take))
   }, [])
   const finishTake = useCallback((reason: TakeEndReason, endTime?: number) => {
-    retainTake(recorder.current.finish(reason, endTime))
+    const take = recorder.current.finish(reason, endTime)
+    retainTake(take)
+    if (take) {
+      automaticGain.current.disabled = false
+      setGainAdjustment(value => ({ ...value, take: value.take + 1 }))
+    }
   }, [retainTake])
   const waveformBuffer = useRef(new BarWaveformBuffer())
   const [waveform, setWaveform] = useState(emptyWaveform)
@@ -90,6 +107,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, inputGain = D
   const outputFailed = useRef(false)
 
   const stop = useCallback(async (keepReview = true) => {
+    stopGainAdjustment()
     generation.current++
     cancelAnimationFrame(animation.current)
     const previousReplay = replay.current
@@ -160,6 +178,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, inputGain = D
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
       document.removeEventListener('visibilitychange', onVisibility)
+      if (gainTimer.current !== null) clearInterval(gainTimer.current)
       generation.current++
       cancelAnimationFrame(animation.current)
       void capture.current?.stop()
@@ -182,11 +201,28 @@ export function usePractice(bpm: number, mode: InterpretationMode, inputGain = D
     setError(null)
     now.current = 0
     engine.current.start(0)
+    automaticGain.current.reset()
+    setGainAdjustment(value => ({ adjusting: false, limited: false, take: value.take + 1 }))
     const captureGain = gain.current
     const audio = createAudioCapture({
       onFrame: frame => {
         if (generation.current !== activeGeneration) return
         now.current = frame.time
+        if (frame.pcm && frame.inputGain !== undefined) {
+          automaticGain.current.observe(frame.pcm.samples, frame.inputGain, gain.current, performance.now())
+          setGainAdjustment(value => ({ ...value, adjusting: automaticGain.current.adjusting, limited: automaticGain.current.limited }))
+          if (automaticGain.current.adjusting && gainTimer.current === null) {
+            gainTimer.current = setInterval(() => {
+              const value = automaticGain.current.tick(performance.now())
+              if (value !== null) {
+                gain.current = value
+                audio.setInputGain?.(value)
+                usePreferences.getState().setInputGain(value)
+              }
+              if (!automaticGain.current.adjusting) stopGainAdjustment()
+            }, 16)
+          }
+        }
         if (frame.pcm) {
           const interrupted = recorder.current.append(frame.pcm, frame.sampleRate)
           if (interrupted) {
@@ -228,7 +264,9 @@ export function usePractice(bpm: number, mode: InterpretationMode, inputGain = D
             dropped: previous.dropped + frame.diagnostics!.dropped + Math.max(0, combined.length - MAX_DIAGNOSTIC_CANDIDATES) }
         })
         const next = engine.current.snapshot(frame.time)
-        if (next.status === 'paused') finishTake('silence', next.lastHitTime === null || next.lastHitTime === undefined ? frame.time : next.lastHitTime + 240 / next.bpm)
+        if (next.status === 'paused' && recorder.current.recording) {
+          finishTake('silence', next.lastHitTime === null || next.lastHitTime === undefined ? frame.time : next.lastHitTime + 240 / next.bpm)
+        }
         const coaching = coach.current.update(next, frame.time, outputOptions.current)
         audio.setMetronome(coaching.plan)
         setMetronomeActive(Boolean(coaching.plan) && frame.metronomeAvailable !== false && !outputFailed.current)
@@ -500,5 +538,5 @@ export function usePractice(bpm: number, mode: InterpretationMode, inputGain = D
     finally { setLibraryBusy(false) }
   }, [libraryBusy])
 
-  return { detectionSensitivity, configureSensitivity, exportSavedPair, pairedExportSupported: Boolean(pairedExport.current), importState, importBusy, importError, importNotice, beginImport, cancelImport, importFiles, chooseImportFiles, useImportAudioOnly, confirmImport, nativeImportPicker: Boolean(importer.current.pick), savedBars, libraryBusy, libraryError, libraryNotice, savedBarsSupported, saveSelectedBar, openSavedBar, exportSavedFile, openRecordedMaterial, liveDiagnostics, detectorSettings, configureDetector, resetDetector, detectorSettingsSupported: source !== 'microphone' && !busy, playBar, restartReplay, replayState, recordedTake, reviewBar, reviewBarIndex, reviewBarCount, previousBar, nextBar, reviewCurrentBar, recordingNotice, snapshot, captureTime: now.current, waveform, waveformSource, source, captureMode, busy, error, captureInfo, captureNotice, outputNotice, metronomeActive, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
+  return { gainAdjustment, manualInputGain, detectionSensitivity, configureSensitivity, exportSavedPair, pairedExportSupported: Boolean(pairedExport.current), importState, importBusy, importError, importNotice, beginImport, cancelImport, importFiles, chooseImportFiles, useImportAudioOnly, confirmImport, nativeImportPicker: Boolean(importer.current.pick), savedBars, libraryBusy, libraryError, libraryNotice, savedBarsSupported, saveSelectedBar, openSavedBar, exportSavedFile, openRecordedMaterial, liveDiagnostics, detectorSettings, configureDetector, resetDetector, detectorSettingsSupported: source !== 'microphone' && !busy, playBar, restartReplay, replayState, recordedTake, reviewBar, reviewBarIndex, reviewBarCount, previousBar, nextBar, reviewCurrentBar, recordingNotice, snapshot, captureTime: now.current, waveform, waveformSource, source, captureMode, busy, error, captureInfo, captureNotice, outputNotice, metronomeActive, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
 }

@@ -3,6 +3,7 @@ import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import type { CaptureCallbacks, CaptureInfo } from './capture'
 import { usePractice } from './use-practice'
+import { usePreferences } from '../lib/preferences'
 import { OnsetDetector } from './onset-detector'
 
 const mocked = vi.hoisted(() => ({ create: vi.fn() }))
@@ -465,6 +466,34 @@ describe('live timing integration', () => {
     }))
     expect(result.current.detectionSensitivity).toBe(0)
     await act(() => result.current.stop())
+  })
+
+  it('reduces future gain without moving beat one, and manual override lasts until the next take', async () => {
+    vi.useFakeTimers()
+    try {
+      usePreferences.setState({ inputGain: 2 })
+      const { result } = renderHook(() => usePractice(120, 'auto', usePreferences(state => state.inputGain)))
+      await act(() => result.current.listen('auto'))
+      act(() => callbacks.onFrame({ ...info, inputGain: 2, time: .1, level: 1,
+        pcm: { startFrame: 0, samples: new Float32Array([1.5]) },
+        onsets: [{ time: .1, confidence: .95, strength: .8 }] }))
+      expect(result.current.gainAdjustment.adjusting).toBe(true)
+      act(() => vi.advanceTimersByTime(1024))
+      expect(usePreferences.getState().inputGain).toBeCloseTo(1.2)
+      expect(result.current.snapshot.phaseOrigin).toBe(.1)
+      act(() => result.current.manualInputGain())
+      act(() => callbacks.onFrame({ ...info, inputGain: 1.2, time: .2, level: 1,
+        pcm: { startFrame: 1, samples: new Float32Array([2]) }, onsets: [] }))
+      expect(result.current.gainAdjustment.adjusting).toBe(false)
+      act(() => frame(2.2))
+      act(() => callbacks.onFrame({ ...info, inputGain: 1.2, time: 2.3, level: 1,
+        pcm: { startFrame: 2, samples: new Float32Array([2]) }, onsets: [] }))
+      expect(result.current.gainAdjustment.adjusting).toBe(true)
+      await act(() => result.current.stop())
+      const stoppedGain = usePreferences.getState().inputGain
+      act(() => vi.advanceTimersByTime(2000))
+      expect(usePreferences.getState().inputGain).toBe(stoppedGain)
+    } finally { vi.useRealTimers() }
   })
 
 })

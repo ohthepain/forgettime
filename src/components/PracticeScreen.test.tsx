@@ -19,7 +19,7 @@ afterEach(() => cleanup())
 
 function practice(): ReturnType<typeof usePractice> {
   return {
-    importState: null, importBusy: false, importError: null, importNotice: null, nativeImportPicker: false,
+    gainAdjustment: { adjusting: false, limited: false, take: 0 }, manualInputGain: vi.fn(), importState: null, importBusy: false, importError: null, importNotice: null, nativeImportPicker: false,
     beginImport: vi.fn(), cancelImport: vi.fn(), importFiles: vi.fn(), chooseImportFiles: vi.fn(), useImportAudioOnly: vi.fn(), confirmImport: vi.fn(),
     savedBars: [], savedBarsSupported: true, libraryBusy: false, libraryError: null, libraryNotice: null,
     exportSavedPair: vi.fn(), pairedExportSupported: false, saveSelectedBar: vi.fn(), openSavedBar: vi.fn(), exportSavedFile: vi.fn(), openRecordedMaterial: vi.fn(),

@@ -48,3 +48,29 @@ it('places microphone selection inside recording options without starting captur
   rerender(<RecordControl {...props} microphone={undefined} />)
   expect(screen.queryByRole('combobox')).toBeNull()
 })
+
+it('opens for automatic adjustment and dismisses half a second after completion', () => {
+  vi.useFakeTimers()
+  const props = { active: true, auto: false, busy: false, disabled: false, stopLabel: 'Stop', listen: vi.fn(async () => {}), stop: vi.fn(async () => {}) }
+  const { rerender } = render(<RecordControl {...props} gainAdjustment={{ adjusting: true, limited: false, take: 1 }} />)
+  expect(screen.getByRole('slider').getAttribute('min')).toBe('0.1')
+  rerender(<RecordControl {...props} gainAdjustment={{ adjusting: false, limited: false, take: 1 }} />)
+  act(() => vi.advanceTimersByTime(499))
+  expect(screen.queryByRole('slider')).not.toBeNull()
+  act(() => vi.advanceTimersByTime(1))
+  expect(screen.queryByRole('slider')).toBeNull()
+})
+it('lets manual interaction retain the popup and cancel gain control', () => {
+  vi.useFakeTimers()
+  const manual = vi.fn()
+  const props = { active: true, auto: false, busy: false, disabled: false, stopLabel: 'Stop', listen: vi.fn(async () => {}), stop: vi.fn(async () => {}), manualInputGain: manual }
+  const { rerender } = render(<RecordControl {...props} gainAdjustment={{ adjusting: true, limited: false, take: 1 }} />)
+  fireEvent.pointerDown(screen.getByRole('slider'))
+  expect(manual).toHaveBeenCalled()
+  rerender(<RecordControl {...props} gainAdjustment={{ adjusting: false, limited: false, take: 1 }} />)
+  act(() => vi.advanceTimersByTime(1000))
+  expect(screen.queryByRole('slider')).not.toBeNull()
+  fireEvent.keyDown(screen.getByRole('slider'), { key: 'Escape' })
+  rerender(<RecordControl {...props} gainAdjustment={{ adjusting: true, limited: false, take: 1 }} />)
+  expect(screen.queryByRole('slider')).toBeNull()
+})

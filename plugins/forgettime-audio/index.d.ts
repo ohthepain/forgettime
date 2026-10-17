@@ -18,6 +18,8 @@ export interface NativeReplayFrame {
 export interface NativeOnset { time: number; strength: number; confidence: number }
 export interface NativeWaveformEnvelope { time: number; duration: number; min: number; max: number }
 export interface NativeAudioFrame {
+  /** Software gain applied to this packet, before bridge delivery. */
+  inputGain?: number
   /** Seconds through which all captured onsets have been analyzed. */
   time: number;
   onsets: NativeOnset[];

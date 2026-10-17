@@ -29,7 +29,7 @@ export function AudioImportControls({ practice }: { practice: ImportPractice }) 
       {state.kind === 'fallback' ? <button onClick={() => void practice.useImportAudioOnly()} disabled={practice.importBusy}>Use audio only</button> : <>
         <p>{state.file.name} · {duration.toFixed(2)} seconds · {state.audio.sampleRate.toLocaleString()} Hz · {state.audio.channels > 1 ? `${state.audio.channels} channels averaged to mono` : 'mono'}</p>
         <label>Import tempo (BPM)<input aria-label="Import tempo (BPM)" type="number" min={30} max={300} value={bpm} onChange={event => setBpm(Number(event.target.value))} /></label>
-        <ImportWaveform key={state.file.name + ':' + state.audio.samples.length} audio={state.audio} beatOne={beatOne} place={place} settings={practice.detectorSettings} />
+        <ImportWaveform key={state.file.name + ':' + state.audio.samples.length} audio={state.audio} bpm={bpm} beatOne={beatOne} place={place} settings={practice.detectorSettings} />
         <label>Beat one (seconds)<input aria-label="Beat one (seconds)" type="number" min={0} max={maximum} step={1 / state.audio.sampleRate} value={beatOne} onChange={event => place(Number(event.target.value))} /></label>
         <p>Tap away from a marker or use arrow keys to place beat one; Shift moves 10 ms. Audio before beat one stays in the source but is outside bar review.</p>
         <button onClick={() => void practice.confirmImport(bpm, beatOne)} disabled={practice.importBusy}>Confirm tempo and beat one</button>

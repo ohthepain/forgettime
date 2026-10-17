@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { AudioRegionPreview } from "../audio/audio-region-preview";
 import type { DecodedImportAudio } from "../audio/audio-import";
 import type { DetectorSettings } from "../audio/detector-contract";
@@ -24,18 +24,22 @@ function waveformPath(samples: Float32Array, start: number, end: number, peak: n
 export function ImportWaveform({
   audio,
   beatOne,
+  bpm = 100,
   place,
   settings,
 }: {
   audio: DecodedImportAudio;
   beatOne: number;
+  bpm?: number;
   place: (time: number) => void;
   settings: DetectorSettings;
 }) {
+  const overviewSelectionId = useId();
   const duration = audio.samples.length / audio.sampleRate,
     maximum = (audio.samples.length - 1) / audio.sampleRate;
   const [view, setView] = useState({ start: 0, span: duration, gain: 1 });
   const [selected, setSelected] = useState<number | null>(null);
+  const [region, setRegion] = useState<{ start: number; end: number } | null>(null);
   const [page, setPage] = useState(0);
   const [hovered, setHovered] = useState<number | null>(null);
   const [focusedMarker, setFocusedMarker] = useState<number | null>(null);
@@ -65,7 +69,7 @@ export function ImportWaveform({
     const token = ++previewGeneration.current;
     setSelected(time); setPreviewError(null); setPreviewing(time);
     try {
-      const started = await preview.current.play(audio, time, Math.min(duration, view.start + view.span), () => {
+      const started = await preview.current.play(audio, time, (region?.start === time ? region.end : markerEnd(time)), () => {
         if (token === previewGeneration.current) setPreviewing(null);
       });
       if (!started && token === previewGeneration.current) setPreviewing(null);
@@ -129,7 +133,9 @@ export function ImportWaveform({
       start.axis = Math.abs(dy) >= Math.abs(dx) ? "vertical" : "horizontal";
     }
     if (!start.moved) return;
-    if (start.axis === "vertical") {
+    if (start.axis === "vertical" && start.surface === "overview") {
+      updateView({ ...start.view, gain: clamp(start.view.gain * Math.exp(-dy / 100), 0.25, 64) });
+    } else if (start.axis === "vertical") {
       const span = clamp(start.view.span * Math.exp(dy / 100), Math.min(duration, 32 / audio.sampleRate), duration);
       const fraction =
         start.surface === "main"
@@ -140,8 +146,13 @@ export function ImportWaveform({
         span,
         start: clamp(start.view.start + fraction * (start.view.span - span), 0, duration - span),
       });
-    } else if (start.surface === "main")
-      updateView({ ...start.view, gain: clamp(start.view.gain * Math.exp(dx / 100), 0.25, 64) });
+    } else if (start.surface === "main") {
+      const anchor = sliceAt(start.view.start + start.fraction * start.view.span);
+      const current = sliceAt(start.view.start + clamp(start.fraction + dx / start.width, 0, 1) * start.view.span);
+      stopPreview();
+      setRegion({ start: Math.min(anchor.start, current.start), end: Math.max(anchor.end, current.end) });
+      setHovered(null); setFocusedMarker(null);
+    }
     else
       updateView({
         ...start.view,
@@ -169,11 +180,22 @@ export function ImportWaveform({
   useEffect(() => {
     setView({ start: 0, span: duration, gain: 1 });
     setSelected(null);
+    setRegion(null);
     setPage(0);
     pointers.current.clear();
     drag.current = null;
   }, [audio, duration]);
   const { hits, pending } = useImportDetections(audio, settings);
+  useEffect(() => { setRegion(null); }, [audio, settings]);
+  function sliceAt(time: number) {
+    const start = hits.filter(hit => hit.time <= time).at(-1)?.time ?? 0;
+    return { start, end: hits.find(hit => hit.time > time)?.time ?? duration };
+  }
+  const barDuration = 240 / bpm;
+  const bars = Number.isFinite(barDuration) && bpm >= 30 && bpm <= 300
+    ? Array.from({ length: Math.max(0, Math.ceil((duration - beatOne) / barDuration)) }, (_, i) => beatOne + i * barDuration)
+    : [];
+  const markerEnd = (time: number) => hits.find(hit => hit.time > time)?.time ?? duration;
   const peak = useMemo(() => {
     let peak = 0.001;
     for (const sample of audio.samples) peak = Math.max(peak, Math.abs(sample));
@@ -193,7 +215,9 @@ export function ImportWaveform({
   );
   const x = (time: number) => ((time - view.start) / view.span) * 512;
   const visible = hits.filter((hit) => hit.time >= view.start && hit.time <= view.start + view.span);
-  const activeMarker = visible.find(hit => hit.time === (hovered ?? focusedMarker ?? selected));
+  const activeMarker = region
+    ? (region.start >= view.start && region.start <= view.start + view.span ? { time: region.start } : undefined)
+    : visible.find(hit => hit.time === (hovered ?? focusedMarker ?? selected));
   function hoverMarker(event: ReactPointerEvent<SVGSVGElement>) {
     if (event.pointerType === 'touch' || pointers.current.size) return;
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -249,7 +273,11 @@ export function ImportWaveform({
           }
         }}
       >
+        {region && <rect data-testid="waveform-selection" x={x(Math.max(view.start, region.start))} y={0}
+          width={Math.max(0, x(Math.min(view.start + view.span, region.end)) - x(Math.max(view.start, region.start)))} height={64} fill="#f4cf6838" pointerEvents="none" />}
         <path d={path} className="waveform-trace" />
+        {bars.filter(time => time >= view.start && time <= view.start + view.span).map((time) =>
+          <line key={time} className="import-bar-marker" pointerEvents="none" x1={x(time)} x2={x(time)} y1={0} y2={64} stroke="#70c78a" vectorEffect="non-scaling-stroke"><title>Bar {Math.round((time - beatOne) / barDuration) + 1}</title></line>)}
         {visible.map((hit) => (
           <g key={hit.time}>
             <line
@@ -258,7 +286,7 @@ export function ImportWaveform({
               y1={0}
               y2={64}
               className="import-detection-marker"
-              stroke={hovered === hit.time || focusedMarker === hit.time ? "#fff1c9" : selected === hit.time ? "#ffe3a3" : "#f2a65a"}
+              stroke={region?.start === hit.time ? "#ffe3a3" : hovered === hit.time || focusedMarker === hit.time ? "#fff1c9" : selected === hit.time ? "#ffe3a3" : "#f2a65a"}
               strokeWidth={activeMarker?.time === hit.time ? 2 : 1}
             />
             <line
@@ -278,7 +306,7 @@ export function ImportWaveform({
       </svg>
       {activeMarker && <button type="button" className="import-marker-play"
         style={{ left: `${(activeMarker.time - view.start) / view.span * 100}%` }}
-        aria-label={previewing === activeMarker.time ? 'Stop audio preview' : `Play from ${activeMarker.time.toFixed(6)} seconds to ${Math.min(duration, view.start + view.span).toFixed(6)} seconds`}
+        aria-label={previewing === activeMarker.time ? 'Stop audio preview' : `Play from ${activeMarker.time.toFixed(6)} seconds to ${(region?.start === activeMarker.time ? region.end : markerEnd(activeMarker.time)).toFixed(6)} seconds`}
         onPointerEnter={() => setHovered(activeMarker.time)}
         onFocus={() => setFocusedMarker(activeMarker.time)} onBlur={() => setFocusedMarker(null)}
         onPointerDown={event => event.stopPropagation()}
@@ -320,14 +348,22 @@ export function ImportWaveform({
           }
         }}
       >
+        <defs>
+          <clipPath id={overviewSelectionId}>
+            <rect x={(view.start / duration) * 512} y={0} width={(view.span / duration) * 512} height={64} />
+          </clipPath>
+        </defs>
         <path d={overview} className="waveform-trace" />
+        {bars.map(time => <line key={time} x1={time / duration * 512} x2={time / duration * 512} y1={0} y2={64} stroke="#70c78a" pointerEvents="none" vectorEffect="non-scaling-stroke" />)}
+        <path d={overview} className="import-overview-selected-trace" clipPath={`url(#${overviewSelectionId})`} />
         <rect
           x={(view.start / duration) * 512}
           y={0}
           width={(view.span / duration) * 512}
           height={64}
-          fill="#b7e3bb22"
-          stroke="#b7e3bb"
+          fill="#f4cf682e"
+          stroke="#f4cf68"
+          vectorEffect="non-scaling-stroke"
         />
       </svg>
       <div className="import-view-controls">
@@ -360,6 +396,7 @@ export function ImportWaveform({
         {view.start.toFixed(3)}–{(view.start + view.span).toFixed(3)} s · waveform height {view.gain.toFixed(2)}×.{" "}
       </p>
       {previewing !== null && <div className="import-preview-status"><span>Previewing from {previewing.toFixed(3)} s · microphone off</span><button onClick={stopPreview}>Stop preview</button></div>}
+      {region && <p>Selected area: {region.start.toFixed(6)}–{region.end.toFixed(6)} source seconds. <button onClick={() => { stopPreview(); setRegion(null); }}>Clear selection</button></p>}
       {previewError && <p role="alert" className="error-message">{previewError}</p>}
       <p role="status">
         {pending

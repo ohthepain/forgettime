@@ -30,6 +30,8 @@ export interface CaptureFrame extends CaptureInfo {
   /** These timestamps use the SAME clock as time, never callback arrival time. */
   onsets: DetectedOnset[]
   level: number
+  /** Gain actually applied to this packet, before bridge delivery. */
+  inputGain?: number
   hardwareTime?: number
   /** Captured 2 ms min/max envelopes; optional for older native plugin builds. */
   waveform?: WaveformEnvelope[]
@@ -296,7 +298,7 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
             callbacks.onFrame({
               // Do not pause while a just-before-timeout attack is in a partial window.
               time: detector.processedThrough ?? time,
-              onsets, level: Math.min(1, Math.sqrt(energy / samples.length)), sampleRate,
+              inputGain, onsets, level: Math.min(1, Math.sqrt(energy / samples.length)), sampleRate,
               waveform: waveform.process(samples, time, sampleRate),
               pcm: { startFrame, samples },
               diagnostics: detector.drainDiagnostics(),

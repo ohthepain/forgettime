@@ -191,6 +191,7 @@ public class ForgettimeAudioPlugin extends Plugin {
                 JSObject event = new JSObject();
                 event.put("sessionId", capture.id);
                 event.put("pcm", pcm);
+                event.put("inputGain", batch.inputGain);
                 event.put("time", analyzedTime);
                 event.put("sampleRate", capture.sampleRate);
                 event.put("level", batch.level);

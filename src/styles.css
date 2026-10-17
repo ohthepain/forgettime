@@ -150,3 +150,5 @@
 .audio-import .import-marker-play:hover, .audio-import .import-marker-play:focus-visible { background: #fff1c9; outline: 1px solid #fff1c9; }
 .audio-import .import-marker-play svg { width: 14px; height: 14px; background: transparent; border-radius: 0; fill: currentColor; pointer-events: none; }
 .import-preview-status { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; }
+
+.import-overview-selected-trace { fill: none; stroke: #ffe08a; stroke-width: 1; opacity: 1; }
