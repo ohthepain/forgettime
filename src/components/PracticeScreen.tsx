@@ -1,3 +1,4 @@
+import { TrainingOptimizer } from "./TrainingOptimizer"
 import { DetectionSensitivity } from "./DetectionSensitivity"
 import { TrainingAnnotationEditor } from "./TrainingAnnotationEditor"
 import type { RecordedTake } from "../audio/recorded-take"
@@ -23,7 +24,8 @@ export function PracticeScreen() {
   const [annotation, setAnnotation] = useState<{ take: RecordedTake; index: number } | null>(null)
   const [annotationCloseRequest, setAnnotationCloseRequest] = useState(0)
   const [annotationOpening, setAnnotationOpening] = useState(false)
-  const annotationActive = Boolean(annotation) || annotationOpening
+  const [optimizerRunning, setOptimizerRunning] = useState(false)
+  const annotationActive = Boolean(annotation) || annotationOpening || optimizerRunning
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [candidatePage, setCandidatePage] = useState(0)
   const [inspectedCandidate, setInspectedCandidate] = useState<InspectableCandidate | null>(null)
@@ -121,10 +123,11 @@ export function PracticeScreen() {
         diagnostics={detailsOpen && source !== 'simulation' ? { candidates: visibleCandidates, selectedId: inspectedCandidate?.id, select: inspectCandidate } : undefined}
         review={review ? { originalAvailable, index: practice.reviewBarIndex, count: practice.reviewBarCount, availableFraction: review.availableFraction, interrupted: review.endReason === 'interrupted', previous: () => void practice.previousBar(), next: () => void practice.nextBar(), select: () => void practice.reviewCurrentBar(), loop: () => void (source === 'replay' ? practice.stop() : practice.playBar()), canLoop: review.complete && !busy } : undefined}
         comparison={review && replay ? { current: currentComparison, select: setCurrentComparison } : undefined} />}
-      {review && !annotation && <button disabled={busy || importPending || annotationOpening} onClick={() => { const take = practice.recordedTake, index = practice.reviewBarIndex; if (!take) return; setAnnotationOpening(true); void practice.stop().then(() => { setAnnotation({ take, index }); setAnnotationOpening(false) }).catch(() => setAnnotationOpening(false)) }}>Annotate training attacks</button>}
+      {review && !annotation && <button disabled={busy || importPending || annotationOpening || optimizerRunning} onClick={() => { const take = practice.recordedTake, index = practice.reviewBarIndex; if (!take) return; setAnnotationOpening(true); void practice.stop().then(() => { setAnnotation({ take, index }); setAnnotationOpening(false) }).catch(() => setAnnotationOpening(false)) }}>Annotate training attacks</button>}
       {annotation && <DetectionSensitivity frequencyBalance={practice.frequencyBalance} changeBalance={value => void practice.configureBalance(value)} value={practice.detectionSensitivity} disabled={false} change={value => void practice.configureSensitivity(value)} />}
       {annotation && <TrainingAnnotationEditor closeRequest={annotationCloseRequest} take={annotation.take} initialIndex={annotation.index} settings={practice.detectorSettings} balance={practice.frequencyBalance} onClose={() => setAnnotation(null)} />}
       {!annotationActive && <AudioImportControls practice={{ ...practice, detectorSettingsSupported: practice.detectorSettingsSupported || Boolean(review && source === 'microphone'), configureBalance: value => inspectReview(() => practice.configureBalance(value)), configureSensitivity: value => inspectReview(() => practice.configureSensitivity(value)) }} />}
+      <TrainingOptimizer starting={{ family: "current", minimumRms: practice.detectorSettings.minimumRms, contrastRatio: practice.detectorSettings.contrastRatio, minSeparationMs: practice.detectorSettings.minSeparationMs, recoverySeconds: practice.detectorSettings.recoverySeconds, frequencyBalance: practice.frequencyBalance }} disabled={Boolean(annotation) || annotationOpening || importPending || busy} beforeStart={() => practice.stop()} runningChanged={setOptimizerRunning} />
       <section className="saved-bars" aria-label="Saved bars">
         {review && <button disabled={annotationActive || practice.libraryBusy || !practice.savedBarsSupported} onClick={() => void practice.saveSelectedBar()}>Save bar on device</button>}
         <details><summary>Saved bars ({practice.savedBars.length})</summary>

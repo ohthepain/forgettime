@@ -1,0 +1,48 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Optimizer browser verification</title>
+<h1>Isolated optimizer verification</h1><p>Serve this page on a dedicated test origin. Creates two synthetic reviewed sources, never microphone audio.</p>
+<button id="prepare">Prepare synthetic training and withheld recordings</button><button id="edit">Edit generated annotations during search</button><button id="restore">Restore generated annotations</button><button id="records">Check real run storage admission and abort</button><button id="cleanup">Remove generated verification data</button><pre id="result" role="status">Ready.</pre>
+<script type="module">
+import {createTrainingSource,trainingExampleId} from '/src/audio/training-contract.ts';
+import {createLocalTrainingRepository} from '/src/audio/training-dataset.ts';
+import {emptyTrainingDataset} from '/src/audio/training-transfer.ts';
+import {createOptimizerRunStore} from '/src/audio/training-optimizer-records.ts';
+const result=document.querySelector('#result'),repo=createLocalTrainingRepository(),records=createOptimizerRunStore();
+const report=fn=>async()=>{try{result.textContent=await fn()}catch(e){result.textContent='FAIL: '+e.message}};
+document.querySelector('#prepare').onclick=report(async()=>{
+ const ids=[]; const before=await repo.read(); if(before.dataset.manifest.examples.length)throw new Error('Use an empty dedicated verification origin');
+ for(let j=0;j<2;j++){
+  const rate=48000,pcm=new Float32Array(rate);for(const time of [.25,.55])for(let k=0;k<1800;k++)pcm[Math.round(time*rate)+k]=(.25+j*.02)*Math.sin(k*2*Math.PI*1800/rate)*Math.exp(-k/180);
+  const {source,samples}=await createTrainingSource([pcm],rate,{kind:'import',name:'Synthetic optimizer verification '+j,beginningAvailable:true,endAvailable:true});
+  const data=emptyTrainingDataset(),bar={startFrame:0,endFrame:38400};data.manifest.sources.push(source);data.audio[source.checksum]=samples;data.manifest.groups.push({id:'optimizer-check-'+j,assignment:j?'withheld':'training',sourceChecksums:[source.checksum]});
+  const e={id:trainingExampleId(source.checksum,bar),sourceChecksum:source.checksum,bar,reference:{bpm:300,beatOneFrame:0,meter:[4,4]},desiredFrames:[12000,26400],uncertain:[],reviewed:true};data.manifest.examples.push(e);await repo.add(data);ids.push(e.id);
+ }
+ localStorage.setItem('optimizer-check-ids',JSON.stringify(ids));return 'PASS: two synthetic recordings prepared, one training and one withheld. Open / to run optimization.';
+});
+document.querySelector('#edit').onclick=report(async()=>{
+ const ids=JSON.parse(localStorage.getItem('optimizer-check-ids')??'[]'),snapshot=await repo.read(),example=snapshot.dataset.manifest.examples.find(e=>e.id===ids[0]);if(!example)throw new Error('Generated source missing');
+ localStorage.setItem('optimizer-check-old-fingerprint',snapshot.fingerprint);await repo.overwrite({...example,desiredFrames:[...new Set([...example.desiredFrames,21000])].sort((a,b)=>a-b),reviewed:true},snapshot.fingerprint);return 'Generated annotation changed; active optimizer should stop as stale.';
+});
+document.querySelector('#restore').onclick=report(async()=>{
+ const ids=JSON.parse(localStorage.getItem('optimizer-check-ids')??'[]'),snapshot=await repo.read(),example=snapshot.dataset.manifest.examples.find(e=>e.id===ids[0]);if(!example)throw new Error('Generated source missing');await repo.overwrite({...example,desiredFrames:[12000,26400],reviewed:true},snapshot.fingerprint);return 'Generated annotations restored to their initial exact fingerprint.';
+});
+document.querySelector('#records').onclick=report(async()=>{
+ const list=await records.list();if(!list.length)throw new Error('Run a parameter search first');const template=list.find(r=>r.family==='current')??list[0],name='forgettime-optimizer-test-'+crypto.randomUUID();let abort=false;
+ const factory={open(_name,version){const request=indexedDB.open(name,version);request.addEventListener('success',()=>{const db=request.result,transaction=db.transaction.bind(db);db.transaction=(...args)=>{const tx=transaction(...args),objectStore=tx.objectStore.bind(tx);tx.objectStore=(...names)=>{const store=objectStore(...names),put=store.put.bind(store);store.put=(...values)=>{if(abort){tx.abort();return}return put(...values)};return store};return tx}});return request}};
+ const isolated=createOptimizerRunStore(factory);await isolated.save(template);const copy={...template,elapsedMs:template.elapsedMs+1};abort=true;let failed=false;try{await isolated.save(copy)}catch{failed=true}abort=false;
+ if(!failed||(await isolated.list())[0].elapsedMs!==template.elapsedMs)throw new Error('Abort did not preserve prior record');
+ for(let i=1;i<20;i++)await isolated.save({...template,id:crypto.randomUUID()});let rejected=false;try{await isolated.save({...template,id:crypto.randomUUID()})}catch{rejected=true}
+ if(!rejected||(await isolated.list()).length!==20)throw new Error('Record admission evicted or exceeded limit');await isolated.save(copy);if((await isolated.list()).length!==20)throw new Error('Existing record update failed');
+ for(const old of await isolated.list())await isolated.remove(old.id);
+ const large={...template,mode:'deep',status:'cancelled',frozenOrder:null,withheld:null,trials:Array.from({length:500},(_,i)=>({...template.trials[0],order:i,phase:i===0?'baseline':i<350?'broad':'refine',resolved:Array.from({length:24},(_,j)=>({sampleRate:8000+j,windowFrames:32,hopFrames:32,reliableFromFrame:416}))})),bestOrder:0};let admitted=0,byteRejected=false;
+ for(let i=0;i<12;i++){try{await isolated.save({...large,id:crypto.randomUUID()});admitted++}catch{byteRejected=true;break}}
+ if(!byteRejected||admitted<1||admitted>=12||(await isolated.list()).length!==admitted)throw new Error('8 MiB admission failed or evicted records');
+ await new Promise((resolve,reject)=>{const req=indexedDB.deleteDatabase(name);req.onsuccess=resolve;req.onerror=()=>reject(req.error)});
+ return 'PASS: real IndexedDB roundtrip, abort retention, retry/update, 20-record and 8 MiB admission and no eviction.';
+});
+document.querySelector('#cleanup').onclick=report(async()=>{
+ const ids=JSON.parse(localStorage.getItem('optimizer-check-ids')??'[]');let snapshot=await repo.read();const fingerprint=snapshot.fingerprint;
+ for(const id of ids)if(snapshot.dataset.manifest.examples.some(e=>e.id===id)){await repo.deleteExample(id,snapshot.fingerprint,true);snapshot=await repo.read()}
+ for(const record of await records.list())if(record.inputFingerprint===fingerprint||record.inputFingerprint===localStorage.getItem('optimizer-check-old-fingerprint'))await records.remove(record.id);
+ localStorage.removeItem('optimizer-check-ids');localStorage.removeItem('optimizer-check-old-fingerprint');return 'Generated examples and associated run records removed; unrelated data preserved.';
+});
+</script></html>

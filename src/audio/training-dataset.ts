@@ -1,3 +1,4 @@
+import { assignTrainingGroups } from './training-scoring';
 import { trainingFingerprint, type TrainingExample } from "./training-contract";
 import {
   decodeTrainingTransfer,
@@ -100,6 +101,11 @@ export function createTrainingRepository(store: TrainingStore) {
     const token = crypto.randomUUID();
     const fingerprint = await trainingFingerprint(valid.manifest);
     await store.compareAndSwap(expected, { token, dataset: valid });
+    // Notifications are advisory; failure after a committed transaction must never report a failed write.
+    if (typeof window !== 'undefined') {
+      try { window.dispatchEvent(new CustomEvent('forgettime-training-changed', { detail: fingerprint })); } catch { /* Storage already committed. */ }
+      try { if (typeof BroadcastChannel !== 'undefined') { const channel = new BroadcastChannel('forgettime-training'); channel.postMessage(fingerprint); channel.close(); } } catch { /* Unsupported origin/channel; freshness is rechecked before publication. */ }
+    }
     return fingerprint;
   }
   return {
@@ -110,6 +116,12 @@ export function createTrainingRepository(store: TrainingStore) {
         fingerprint: await trainingFingerprint(dataset.manifest),
         bytes: dataset.manifest.sources.reduce((n, s) => n + s.frames * 4, 0),
       };
+    },
+    async assignGroups(expectedFingerprint: string, seed: number) {
+      const { token, dataset } = await load();
+      if (await trainingFingerprint(dataset.manifest) !== expectedFingerprint) throw new Error('Training dataset changed; review assignments again');
+      dataset.manifest = assignTrainingGroups(dataset.manifest, seed);
+      return commit(token, dataset);
     },
     async add(input: TrainingDataset) {
       const incoming = await validateTrainingDataset(input);
