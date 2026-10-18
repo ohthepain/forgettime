@@ -1,3 +1,6 @@
+import { DetectionSensitivity } from "./DetectionSensitivity"
+import { TrainingAnnotationEditor } from "./TrainingAnnotationEditor"
+import type { RecordedTake } from "../audio/recorded-take"
 import { RecordControl } from './RecordControl'
 import { AudioImportControls } from './AudioImportControls'
 import { useEffect, useState } from 'react'
@@ -17,6 +20,10 @@ const MODES: { value: InterpretationMode; label: string }[] = [
 ]
 export function PracticeScreen() {
   const { bpm, mode, inputGain, setBpm, setMode, metronomeEnabled, metronomeMode, helpThresholdMs } = usePreferences()
+  const [annotation, setAnnotation] = useState<{ take: RecordedTake; index: number } | null>(null)
+  const [annotationCloseRequest, setAnnotationCloseRequest] = useState(0)
+  const [annotationOpening, setAnnotationOpening] = useState(false)
+  const annotationActive = Boolean(annotation) || annotationOpening
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [candidatePage, setCandidatePage] = useState(0)
   const [inspectedCandidate, setInspectedCandidate] = useState<InspectableCandidate | null>(null)
@@ -81,12 +88,12 @@ export function PracticeScreen() {
     else setTempoText(String(bpm))
   }
   return <main className="app-shell">
-    <header className="app-header"><a className="wordmark" href="/" aria-label="Forgettime home"><AudioLines size={21} strokeWidth={1.5} />forgettime<span className="wordmark-dot">.</span></a>
+    <header className="app-header"><a className="wordmark" href="/" aria-label="Forgettime home" onClick={event => { if (annotation) { event.preventDefault(); setAnnotationCloseRequest(n => n + 1) } }}><AudioLines size={21} strokeWidth={1.5} />forgettime<span className="wordmark-dot">.</span></a>
       <div className="header-actions"><button className="icon-button" onClick={() => setHelpOpen(!helpOpen)} aria-label="How it works" aria-expanded={helpOpen}><CircleHelp size={19} /></button><button className="icon-button" onClick={() => setAccountOpen(true)} aria-label="Your account"><UserRound size={19} /></button><button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label="Settings" aria-haspopup="dialog" aria-expanded={settingsOpen}><Settings size={19} /></button></div>
     </header>
     <section className="tempo-card" aria-label="Drum timing practice">
       <div className="practice-toolbar" role="group" aria-label="Practice controls">
-        <RecordControl gainAdjustment={practice.gainAdjustment} manualInputGain={practice.manualInputGain} active={running} auto={practice.captureMode === 'auto'} busy={busy} disabled={importPending}
+        <RecordControl gainAdjustment={practice.gainAdjustment} manualInputGain={practice.manualInputGain} active={running} auto={practice.captureMode === 'auto'} busy={busy} disabled={importPending || annotationActive}
           microphone={practice.canSelectInput ? { devices: practice.inputDevices, deviceId: practice.deviceId, select: practice.setDeviceId } : undefined}
           stopLabel={busy ? 'Cancel microphone' : source === 'simulation' ? 'Stop simulation' : source === 'replay' ? 'Pause playback' : 'Stop listening'} listen={practice.listen} stop={practice.stop} />
         <button className="metronome-settings" aria-label="Metronome settings" aria-haspopup="dialog" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(true)}>
@@ -98,7 +105,7 @@ export function PracticeScreen() {
           <span className="beat-dots" aria-hidden="true">{[1, 2, 3, 4].map(beat => <i key={beat} className={snapshot.beat === beat ? 'active' : ''} />)}</span>
         </span>
         </button>
-        <div className="bpm-control"><input id="bpm" aria-label="Tempo in beats per minute" inputMode="numeric" type="number" min={30} max={300} step={1} value={source === 'replay' ? snapshot.bpm : tempoText} disabled={busy || source === 'simulation' || source === 'replay'} onChange={event => setTempoText(event.target.value)} onBlur={commitTempo} onKeyDown={event => { if (event.key === 'Enter') { commitTempo(); event.currentTarget.blur() } }} /><label htmlFor="bpm">BPM</label></div>
+        <div className="bpm-control"><input id="bpm" aria-label="Tempo in beats per minute" inputMode="numeric" type="number" min={30} max={300} step={1} value={source === 'replay' ? snapshot.bpm : tempoText} disabled={annotationActive || busy || source === 'simulation' || source === 'replay'} onChange={event => setTempoText(event.target.value)} onBlur={commitTempo} onKeyDown={event => { if (event.key === 'Enter') { commitTempo(); event.currentTarget.blur() } }} /><label htmlFor="bpm">BPM</label></div>
       </div>
       {(source === 'simulation' || source === 'replay' || (review && source === 'off')) && <p className="practice-label">{source === 'simulation' ? 'SIMULATION' : source === 'replay' ? 'BAR REPLAY' : 'BAR REVIEW'}</p>}
       {status && <p className="playing-status" role="status"><span className={`status-dot ${running ? 'active' : ''}`} />{status}</p>}
@@ -109,20 +116,23 @@ export function PracticeScreen() {
       </div>
       <div className="meter-scale"><span>−100 ms</span><span>0</span><span>+100 ms</span></div>
       {detail && <div className="result-area"><p className={latest?.uncertain ? 'result uncertain' : 'result'}>{detail}</p><p className="result-note">{latest?.uncertain ? 'No timing score for this hit' : playing ? 'Reference stays fixed as you play' : null}</p></div>}
-      <BarWaveform waveform={reviewWaveform ?? practice.waveform} source={source === 'replay' ? 'replay' : review ? 'microphone' : source === 'off' && practice.waveform.review ? practice.waveformSource : source}
+      {!annotation && <BarWaveform waveform={reviewWaveform ?? practice.waveform} source={source === 'replay' ? 'replay' : review ? 'microphone' : source === 'off' && practice.waveform.review ? practice.waveformSource : source}
         status={snapshot.status}
         diagnostics={detailsOpen && source !== 'simulation' ? { candidates: visibleCandidates, selectedId: inspectedCandidate?.id, select: inspectCandidate } : undefined}
         review={review ? { originalAvailable, index: practice.reviewBarIndex, count: practice.reviewBarCount, availableFraction: review.availableFraction, interrupted: review.endReason === 'interrupted', previous: () => void practice.previousBar(), next: () => void practice.nextBar(), select: () => void practice.reviewCurrentBar(), loop: () => void (source === 'replay' ? practice.stop() : practice.playBar()), canLoop: review.complete && !busy } : undefined}
-        comparison={review && replay ? { current: currentComparison, select: setCurrentComparison } : undefined} />
-      <AudioImportControls practice={{ ...practice, detectorSettingsSupported: practice.detectorSettingsSupported || Boolean(review && source === 'microphone'), configureBalance: value => inspectReview(() => practice.configureBalance(value)), configureSensitivity: value => inspectReview(() => practice.configureSensitivity(value)) }} />
+        comparison={review && replay ? { current: currentComparison, select: setCurrentComparison } : undefined} />}
+      {review && !annotation && <button disabled={busy || importPending || annotationOpening} onClick={() => { const take = practice.recordedTake, index = practice.reviewBarIndex; if (!take) return; setAnnotationOpening(true); void practice.stop().then(() => { setAnnotation({ take, index }); setAnnotationOpening(false) }).catch(() => setAnnotationOpening(false)) }}>Annotate training attacks</button>}
+      {annotation && <DetectionSensitivity frequencyBalance={practice.frequencyBalance} changeBalance={value => void practice.configureBalance(value)} value={practice.detectionSensitivity} disabled={false} change={value => void practice.configureSensitivity(value)} />}
+      {annotation && <TrainingAnnotationEditor closeRequest={annotationCloseRequest} take={annotation.take} initialIndex={annotation.index} settings={practice.detectorSettings} balance={practice.frequencyBalance} onClose={() => setAnnotation(null)} />}
+      {!annotationActive && <AudioImportControls practice={{ ...practice, detectorSettingsSupported: practice.detectorSettingsSupported || Boolean(review && source === 'microphone'), configureBalance: value => inspectReview(() => practice.configureBalance(value)), configureSensitivity: value => inspectReview(() => practice.configureSensitivity(value)) }} />}
       <section className="saved-bars" aria-label="Saved bars">
-        {review && <button disabled={practice.libraryBusy || !practice.savedBarsSupported} onClick={() => void practice.saveSelectedBar()}>Save bar on device</button>}
+        {review && <button disabled={annotationActive || practice.libraryBusy || !practice.savedBarsSupported} onClick={() => void practice.saveSelectedBar()}>Save bar on device</button>}
         <details><summary>Saved bars ({practice.savedBars.length})</summary>
           <p>Audio stays on this device. Up to 100 bars / 256 MiB. Browser storage can be cleared; download both files for a portable copy.</p>
           {practice.savedBarsSupported === false && <p>Local saved bars are unavailable in this version on this device.</p>}
           <ul>{practice.savedBars.map(bar => <li key={bar.id}>
             <span>{bar.name}{!bar.complete && ' · partial'}</span>
-            <div><button aria-label={`Open ${bar.name}`} disabled={practice.libraryBusy || busy || importPending} onClick={() => void practice.openSavedBar(bar.id)}>Open</button>
+            <div><button aria-label={`Open ${bar.name}`} disabled={annotationActive || practice.libraryBusy || busy || importPending} onClick={() => void practice.openSavedBar(bar.id)}>Open</button>
               {practice.pairedExportSupported ? <button disabled={practice.libraryBusy} onClick={() => void practice.exportSavedPair(bar.id)}>Export WAV + .forget</button> : <><button aria-label={`Download WAV for ${bar.name}`} disabled={practice.libraryBusy} onClick={() => void practice.exportSavedFile(bar.id, 'wav')}>WAV ↓</button>
               <button aria-label={`Download .forget for ${bar.name}`} disabled={practice.libraryBusy} onClick={() => void practice.exportSavedFile(bar.id, 'forget')}>.forget ↓</button></>}</div>
           </li>)}</ul>
@@ -145,7 +155,7 @@ export function PracticeScreen() {
         originalSettings={practice.recordedTake?.settings.detector}
         candidates={candidates} selected={inspectedCandidate} select={inspectCandidate} page={activeCandidatePage} setPage={page => void inspectReview(() => setCandidatePage(page))}
         dropped={diagnosticsDropped} diagnosticsSupported={diagnosticsSupported} context={review ? currentComparison && replay ? `Current loop ${replay.iteration + 1} · fresh run ${replay.run}` : 'Original capture' : source === 'microphone' ? 'Live detector candidates' : 'Latest live candidates'} />}
-      <div className="interpretation"><span className="small-label">INTERPRETATION</span><div className="mode-control" role="group" aria-label="Rhythm interpretation">{MODES.map(item => <button key={item.value} aria-pressed={mode === item.value} onClick={() => setMode(item.value)} disabled={busy || source === 'simulation' || source === 'replay'}>{item.label}</button>)}</div></div>
+      <div className="interpretation"><span className="small-label">INTERPRETATION</span><div className="mode-control" role="group" aria-label="Rhythm interpretation">{MODES.map(item => <button key={item.value} aria-pressed={mode === item.value} onClick={() => setMode(item.value)} disabled={annotationActive || busy || source === 'simulation' || source === 'replay'}>{item.label}</button>)}</div></div>
 
       {practice.recordingNotice && <p className="capture-notice" role="status">{practice.recordingNotice}</p>}
       {error && <p className="error-message" role="alert">{error}</p>}
@@ -156,7 +166,7 @@ export function PracticeScreen() {
       {source === 'replay' && <p className="source-note">Recorded audio · microphone and Auto are off</p>}
       {source === 'simulation' && <p className="source-note demo-label">Generated hits · microphone is off</p>}
     </section>
-    <footer className="app-footer"><span>Listen to your own time.</span>{!running && <button onClick={() => void practice.simulate()} disabled={busy || importPending}>Try a simulation <span aria-hidden="true">↗</span></button>}</footer>
+    <footer className="app-footer"><span>Listen to your own time.</span>{!running && <button onClick={() => void practice.simulate()} disabled={annotationActive || busy || importPending}>Try a simulation <span aria-hidden="true">↗</span></button>}</footer>
     {helpOpen && <section className="help-panel"><h2>Make room for the groove.</h2><p>Choose a tempo, enable the microphone, then play. Your first strong hit sets beat 1 immediately. The clock stays fixed, so drifting ahead or behind remains visible.</p><p>Auto considers straight and triplet rhythms across a short sequence. Straight uses eighths and sixteenths; Swing / triplet uses triplet subdivisions. Fills need a little interpretation time. Ambiguous attacks get no precise score.</p><p>Play the starting hit on your intended downbeat. The counter continues through gaps shorter than a full bar. After a full bar without a hit, a single take ends and the microphone stops. Hold the record button for Auto to keep listening and start a fresh take with your next strong hit. Stop ends either mode. Use Input gain beside Record to adjust incoming microphone audio. Detection sensitivity in the imported-audio section tunes import and replay analysis only.</p><p>Audio stays on your device. The latest take is held in memory for bar review, up to two minutes; a new take replaces it and closing the app discards it unless you choose Save bar on device. Saved bars remain in local app storage. Export both the WAV and .forget files for a portable copy before clearing app or browser storage. Quiet hits under cymbals may be missed. Device timing accuracy still needs real-world calibration. Changing tempo or interpretation starts a fresh reference.</p></section>}
     {accountOpen && <AccountDialog onClose={() => setAccountOpen(false)} />}
     {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} metronomeActive={practice.metronomeActive} simulation={source === 'simulation'} />}

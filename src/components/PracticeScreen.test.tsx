@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { webcrypto } from 'node:crypto'
 import { importedMaterial } from '../audio/audio-import'
@@ -315,3 +315,37 @@ it('opens Settings from the metronome and returns focus without activating captu
     if (close) Object.defineProperty(prototype, 'close', close); else Reflect.deleteProperty(prototype, 'close')
   }
 })
+
+it("stops capture before annotation and blocks source replacement while the editor is open", async () => {
+  state = practice();
+  const take: RecordedTake = {
+    audio: { startFrame: 0, sampleRate: 8000, samples: new Float32Array(24000) },
+    source: "web",
+    origin: 0.1,
+    continuity: 1,
+    settings: { bpm: 120, mode: "straight", startSensitivity: 50 },
+    onsets: [],
+    results: [],
+    endReason: "stopped",
+  };
+  state.recordedTake = take;
+  state.reviewBar = recordedBar(take, 0);
+  state.reviewBarCount = 2;
+  vi.mocked(usePractice).mockImplementation(() => state);
+  vi.stubGlobal("indexedDB", {});
+  render(<PracticeScreen />);
+  fireEvent.click(screen.getByRole("button", { name: "Annotate training attacks" }));
+  await waitFor(() =>
+    expect(screen.getByRole("region", { name: "Training annotation" })).toBeDefined(),
+  );
+  expect(state.stop).toHaveBeenCalledOnce();
+  expect(state.listen).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "Import audio" })).toBeNull();
+  expect(
+    (screen.getByRole("button", { name: /Try a simulation/ }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(
+    (screen.getByRole("button", { name: "Enable microphone" }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  vi.unstubAllGlobals();
+});

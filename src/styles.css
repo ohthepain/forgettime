@@ -169,3 +169,99 @@
 .practice-toolbar .beat-pendulum { width: 80px; height: 88px; bottom: -8px; }
 .practice-toolbar .record-popover { left: 0; right: auto; max-width: calc(100vw - 64px); }
 .tempo-card > .practice-label { margin: 0 0 16px; text-align: right; }
+
+.training-editor {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid #3a4949;
+  background: #172020;
+  text-align: left;
+}
+.training-editor fieldset {
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+.training-heading,
+.training-tools,
+.training-editor nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+}
+.training-heading h2 {
+  flex: 1;
+  font-size: 1rem;
+}
+.training-editor p {
+  font-size: 0.8rem;
+  color: #a8b7b8;
+  overflow-wrap: anywhere;
+}
+.training-editor button {
+  min-height: 36px;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #50635c;
+  border-radius: 4px;
+  background: #24342f;
+  color: #dfebe4;
+  cursor: pointer;
+}
+.training-editor button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.training-editor [aria-current="step"],
+.training-editor [aria-pressed="true"] {
+  border-color: #74cf9a;
+  background: #314f3e;
+}
+.training-editor input {
+  max-width: 100%;
+  width: 8rem;
+  background: #111919;
+  color: #e0e9e6;
+  border: 1px solid #586462;
+  padding: 0.4rem;
+}
+.training-tools label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+}
+.training-waveform {
+  display: block;
+  width: 100%;
+  height: 180px;
+  background: #101819;
+  border: 1px solid #52635d;
+  overflow: hidden;
+}
+.training-waveform [role="button"] {
+  cursor: pointer;
+}
+.training-waveform [role="button"]:focus line {
+  stroke: white;
+  stroke-width: 4;
+}
+.training-attacks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0;
+  list-style: none;
+}
+.training-editor [role="dialog"] {
+  position: relative;
+  border: 2px solid #74cf9a;
+  padding: 1rem;
+  margin: 1rem 0;
+  background: #17251e;
+}
+.training-editor [role="alert"] {
+  color: #ffb8a6;
+}

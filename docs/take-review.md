@@ -58,3 +58,7 @@ Detection details show Energy evidence, Frequency evidence, the selected band an
 ## Compact practice controls
 
 Record, the metronome and BPM share one top row. Tapping or keyboard-activating the metronome opens Settings. The idle card omits the Tempo heading, idle tagline and pocket guidance, Ahead/On time/Behind labels and default ONE BAR/WAVEFORM heading. Active capture/replay status, timing results, waveform provenance and the live/simulation distinction remain available. Recording and timing behavior are unchanged.
+
+## Training annotation
+
+Recorded bar now offers **Annotate training attacks** with Correct attacks, Mark uncertainty, and Review & save. It stops capture/replay and keeps the microphone and Auto off. Desired labels are independent of calculated detections; explicit Add/Overwrite confirms review without a checkbox. Training tempo keeps beat one/attacks at their source times while recutting bar boundaries. See [training annotation](training-annotation.md) for editing, draft safeguards, source retention and validation limits.
