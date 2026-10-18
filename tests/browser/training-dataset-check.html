@@ -1,0 +1,35 @@
+<!-- Temporary public copy only. Isolated disposable IndexedDB; no user data touched. -->
+<!doctype html><title>Training dataset storage checks</title><pre id="results">Running…</pre>
+<script type="module">
+import {createLocalTrainingRepository,createIndexedDbTrainingStore} from '/src/audio/training-dataset.ts'
+import {createTrainingSource,trainingExampleId} from '/src/audio/training-contract.ts'
+const name='forgettime-training-check-'+crypto.randomUUID(),factory={open:(_,v)=>indexedDB.open(name,v)},checks=[]
+function check(ok,label){if(!ok)throw new Error(label);checks.push('PASS: '+label)}
+try{
+ const pcm=new Float32Array(32000);pcm.set([-0,1.25,-.5]);const {source,samples}=await createTrainingSource([pcm],8000,{kind:'import',beginningAvailable:true,endAvailable:true})
+ const example=bar=>({id:trainingExampleId(source.checksum,bar),sourceChecksum:source.checksum,bar,reference:{bpm:120,beatOneFrame:0,meter:[4,4]},desiredFrames:[bar.startFrame],uncertain:[],reviewed:true})
+ const dataset=bar=>({manifest:{format:'forgettime-training',schemaVersion:1,sources:[source],groups:[{id:'group',sourceChecksums:[source.checksum],assignment:'training'}],examples:[example(bar)]},audio:{[source.checksum]:samples}})
+ const repo=createLocalTrainingRepository(factory);await repo.add(dataset({startFrame:0,endFrame:16000}))
+ let state=await createLocalTrainingRepository(factory).read()
+ check(Object.is(state.dataset.audio[source.checksum][0],-0)&&state.dataset.audio[source.checksum][1]===1.25,'Exact retained PCM survives repository reopen')
+ const original=IDBObjectStore.prototype.put
+ IDBObjectStore.prototype.put=function(value,key){const req=original.call(this,value,key);if(this.transaction.db.name===name)this.transaction.abort();return req}
+ let rejected=false
+ try{await repo.add(dataset({startFrame:16000,endFrame:32000}))}catch{rejected=true}finally{IDBObjectStore.prototype.put=original}
+ check(rejected&&(await repo.read()).fingerprint===state.fingerprint,'Transaction abort preserves complete prior dataset')
+ await repo.add(dataset({startFrame:16000,endFrame:32000}));state=await repo.read()
+ check(state.dataset.manifest.examples.length===2&&state.dataset.manifest.sources.length===1&&state.bytes===128000,'Retry works and two examples share one source payload')
+ const bytes=await repo.exportFile(),cloneName=name+'-import',cloneFactory={open:(_,v)=>indexedDB.open(cloneName,v)},clone=createLocalTrainingRepository(cloneFactory)
+ const preview=await clone.previewImport(bytes);await clone.importFile(bytes,preview,{})
+ check((await clone.read()).fingerprint===state.fingerprint,'Self-contained transfer restores exact manifest and PCM in independent storage')
+ const backend=createIndexedDbTrainingStore(factory),snapshot=await backend.read();let stale=false
+ try{await backend.compareAndSwap('stale-token',snapshot)}catch{stale=true}
+ check(stale&&(await repo.read()).fingerprint===state.fingerprint,'Backend rejects stale compare-and-swap without losing data')
+ await repo.deleteExample(state.dataset.manifest.examples[0].id,state.fingerprint,true);state=await repo.read()
+ check(state.dataset.manifest.sources.length===1,'Deleting one bar retains shared source audio')
+ await repo.deleteExample(state.dataset.manifest.examples[0].id,state.fingerprint,true);state=await repo.read()
+ check(state.dataset.manifest.sources.length===0&&Object.keys(state.dataset.audio).length===0,'Last deletion removes orphan audio atomically')
+ document.querySelector('#results').textContent=checks.join('\n')
+ indexedDB.deleteDatabase(name);indexedDB.deleteDatabase(cloneName)
+}catch(error){document.querySelector('#results').textContent=checks.join('\n')+'\nFAIL: '+error.stack}
+</script>
