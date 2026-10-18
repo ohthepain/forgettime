@@ -4,6 +4,7 @@
     "scripts/compare-audio.ts",
     "scripts/check-audio-fixtures.ts",
     "scripts/lib/audio-*.ts",
-    "plugins/forgettime-audio/tests/validate-parity.ts"
+    "plugins/forgettime-audio/tests/validate-parity.ts",
+    "plugins/forgettime-audio/tests/validate-mel-parity.ts"
   ]
 }
