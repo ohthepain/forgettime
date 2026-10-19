@@ -13,6 +13,7 @@ const info: CaptureInfo = { source: 'web', sampleRate: 48000, timestampQuality: 
 let callbacks: CaptureCallbacks
 let released: boolean
 beforeEach(() => {
+  const host = document.createElement('section'); host.id = 'training-import-panel'; document.body.append(host);
   localStorage.clear()
   usePreferences.setState({ bpm: 120, mode: 'auto' })
   released = false
@@ -23,7 +24,7 @@ beforeEach(() => {
   vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
   vi.stubGlobal('cancelAnimationFrame', vi.fn())
 })
-afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); document.querySelectorAll('#training-import-panel').forEach(el => el.remove()); vi.unstubAllGlobals() })
 
 it('offers explicit single or Auto capture without confusing rhythmic Auto, and lets Stop disable Auto', async () => {
   const view = render(<PracticeScreen />)
@@ -69,7 +70,7 @@ it('overlays accessible bar navigation and stops Auto when reviewing retained au
   expect((screen.getByRole('button', { name: 'Next bar' }) as HTMLButtonElement).disabled).toBe(true)
   expect(released).toBe(true)
   expect(screen.getByRole('button', { name: 'Auto capture' }).getAttribute('aria-pressed')).toBe('false')
-  expect(screen.getByText('RECORDED AUDIO')).toBeDefined()
+  expect(screen.queryByText('RECORDED AUDIO')).toBeNull()
 })
 
 it('reveals real PCM candidates without moving existing hits or reopening capture', async () => {

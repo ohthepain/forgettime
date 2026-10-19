@@ -1,3 +1,4 @@
+import { useTrainingSession } from "../lib/training-session";
 import { useEffect, useRef, useState } from "react";
 import { createLocalTrainingRepository } from "../audio/training-dataset";
 import { createOptimizerRunStore } from "../audio/training-optimizer-records";
@@ -26,13 +27,15 @@ export function TrainingOptimizer({
   beforeStart,
   runningChanged,
   starting,
+  standalone = false,
 }: {
+  standalone?: boolean;
   disabled: boolean;
   starting?: OptimizerParameters;
   beforeStart: () => Promise<void>;
   runningChanged: (running: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false),
+  const [open, setOpen] = useState(standalone),
     [family, setFamily] = useState<OptimizerFamily>("current"),
     [mode, setMode] = useState<"quick" | "deep">("quick"),
     [seed, setSeed] = useState("1");
@@ -43,6 +46,7 @@ export function TrainingOptimizer({
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [fingerprint, setFingerprint] = useState("");
+  const [exampleCount, setExampleCount] = useState(0);
   const preparingCancelled = useRef(false);
   const worker = useRef<Worker | null>(null),
     activeFingerprint = useRef(""),
@@ -70,6 +74,7 @@ export function TrainingOptimizer({
       try {
         const snapshot = await createLocalTrainingRepository().read();
         if (mounted.current) setFingerprint(snapshot.fingerprint);
+        setExampleCount(snapshot.dataset.manifest.examples.length);
       } catch (e) {
         if (mounted.current) setError((e as Error).message);
       }
@@ -83,12 +88,16 @@ export function TrainingOptimizer({
       runningCallback.current(false);
     };
   }, []);
+  useEffect(() => {
+    if (standalone) void load();
+  }, [standalone]);
   async function load() {
     try {
       const snapshot = await createLocalTrainingRepository().read(),
         records = await createOptimizerRunStore().list();
       if (mounted.current) {
         setFingerprint(snapshot.fingerprint);
+        setExampleCount(snapshot.dataset.manifest.examples.length);
         setHistory(records);
       }
     } catch (e) {
@@ -119,6 +128,7 @@ export function TrainingOptimizer({
     setRunning(true);
     runningCallback.current(true);
     try {
+      const capturedStarting = structuredClone(starting);
       const numericSeed = Number(seed);
       if (!Number.isInteger(numericSeed) || numericSeed < 0 || numericSeed > 0xffffffff)
         throw new Error("Use a whole seed between 0 and 4294967295");
@@ -142,6 +152,7 @@ export function TrainingOptimizer({
       }
       activeFingerprint.current = snapshot.fingerprint;
       setFingerprint(snapshot.fingerprint);
+      setExampleCount(snapshot.dataset.manifest.examples.length);
       invalidated.current = false;
       if (!withheld) setRun(null);
       const instance = new Worker(
@@ -165,6 +176,9 @@ export function TrainingOptimizer({
         if (!mounted.current || worker.current !== instance) return;
         if (event.data.type === "progress") {
           setProgress(event.data.progress);
+          useTrainingSession.setState({
+            progress: `${event.data.progress.completed} / ${event.data.progress.budget} trials`,
+          });
           return;
         }
         if (event.data.type === "error") {
@@ -197,7 +211,7 @@ export function TrainingOptimizer({
                 family,
                 mode,
                 seed: numericSeed,
-                ...(starting?.family === family ? { starting } : {}),
+                ...(capturedStarting?.family === family ? { starting: capturedStarting } : {}),
               },
             },
       );
@@ -216,16 +230,18 @@ export function TrainingOptimizer({
   const best = run?.bestOrder == null ? null : run.trials[run.bestOrder],
     baseline = run?.trials[0];
   return (
-    <section className="training-editor" aria-label="Parameter optimization">
-      <button
-        aria-expanded={open}
-        onClick={() => {
-          setOpen(!open);
-          if (!open) void load();
-        }}
-      >
-        Parameter optimization
-      </button>
+    <section data-testid="parameter-optimizer" data-run-id={run?.id ?? ""} data-run-status={run?.status ?? ""} data-frozen={String(Boolean(run && run.frozenOrder !== null && run.frozenOrder === run.bestOrder))} data-withheld={String(Boolean(run?.withheld))} data-stale={String(stale)} data-profile-selected={notice.startsWith("Profile selected") ? run?.id : ""} className="training-editor" aria-label="Parameter optimization">
+      {!standalone && (
+        <button
+          aria-expanded={open}
+          onClick={() => {
+            setOpen(!open);
+            if (!open) void load();
+          }}
+        >
+          Parameter optimization
+        </button>
+      )}
       {open && (
         <>
           <p>
@@ -233,7 +249,7 @@ export function TrainingOptimizer({
             stable split, with about 20% withheld when possible. All bars from one group stay
             together. Audio stays on this device; the microphone and Auto stop before a run.
           </p>
-          <fieldset disabled={disabled || running}>
+          <fieldset disabled={disabled || running || exampleCount === 0}>
             <div className="training-tools">
               <label>
                 Detector family{" "}
@@ -295,13 +311,14 @@ export function TrainingOptimizer({
             </div>
           )}
           {run && (
-            <>
+            <div data-testid="optimizer-results">
               <p>
                 {run.family === "mel" ? "Mel" : "Current"} · {run.mode} · seed {run.seed} ·{" "}
                 {run.status} · {run.trials.length} trials · {(run.elapsedMs / 1000).toFixed(1)} s
                 {stale ? " · Outdated inputs or build" : ""}
               </p>
               <p>Baseline: {scoreText(baseline?.score)}</p>
+              {baseline && <p>Baseline parameters: {parameterText(baseline.parameters)}</p>}
               <p>Best training candidate: {scoreText(best?.score)}</p>
               <p>
                 {!baseline?.score
@@ -328,6 +345,41 @@ export function TrainingOptimizer({
               )}
               <div className="training-tools">
                 <button
+                  data-testid="optimizer-use-profile"
+                  disabled={
+                    running ||
+                    stale ||
+                    !best ||
+                    run.status !== "completed" ||
+                    !best.score?.seconds ||
+                    run.frozenOrder !== run.bestOrder
+                  }
+                  onClick={() => {
+                    if (best) {
+                      useTrainingSession.setState({
+                        current: best.parameters,
+                        adopt: best.parameters,
+                      });
+                      try {
+                        localStorage.setItem(
+                          "forgettime-training-profile",
+                          JSON.stringify(best.parameters),
+                        );
+                      } catch {
+                        setError(
+                          "Profile selected for this session; browser storage could not save it.",
+                        );
+                      }
+                      setNotice(
+                        `Profile selected for dataset comparisons; evidence: ${best.score?.evidence || "unavailable"}. Current-detector profiles also apply to Practice review; live capture keeps shared defaults.`,
+                      );
+                    }
+                  }}
+                >
+                  Use evaluated profile
+                </button>
+                <button
+                  data-testid="optimizer-freeze-candidate"
                   disabled={running || disabled || stale || !best || run.status === "failed"}
                   onClick={() => {
                     try {
@@ -340,6 +392,7 @@ export function TrainingOptimizer({
                   Freeze best candidate
                 </button>
                 <button
+                  data-testid="optimizer-evaluate-withheld"
                   disabled={running || disabled || stale || run.frozenOrder === null}
                   onClick={() => void start(true)}
                 >
@@ -401,12 +454,12 @@ export function TrainingOptimizer({
                   </table>
                 </div>
               </details>
-            </>
+            </div>
           )}
           {history.length > 0 && (
-            <details>
-              <summary>Saved runs ({history.length}/20)</summary>
-              <ul>
+            <details data-testid="optimizer-saved-runs">
+              <summary data-testid="optimizer-saved-runs-toggle">Saved runs ({history.length}/20)</summary>
+              <ul data-testid="optimizer-run-list">
                 {history.map((record) => (
                   <li key={record.id}>
                     <button disabled={running} onClick={() => setRun(record)}>

@@ -4,6 +4,13 @@ import type { DecodedImportAudio } from './audio-import'
 export class AudioRegionPreview {
   private context: AudioContext | null = null
   private output: AudioBufferSourceNode | null = null
+  private firstFrame = 0
+  private lastFrame = 0
+  private sampleRate = 1
+  private startedAt = 0
+  get currentFrame(): number | null {
+    return this.output && this.context ? Math.min(this.lastFrame, this.firstFrame + Math.max(0, this.context.currentTime - this.startedAt) * this.sampleRate) : null
+  }
   private generation = 0
 
   stop() {
@@ -46,7 +53,11 @@ export class AudioRegionPreview {
       context.onstatechange = () => {
         if (token === this.generation && context.state !== 'running') { this.stop(); ended() }
       }
-      output.start(context.currentTime)
+      this.firstFrame = first
+      this.lastFrame = last
+      this.sampleRate = audio.sampleRate
+      this.startedAt = context.currentTime
+      output.start(this.startedAt)
       return true
     } catch (error) {
       if (token !== this.generation) return false

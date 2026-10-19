@@ -120,3 +120,66 @@ it("changes example identity with tempo without discarding the previous example;
   expect(partial.coverage.complete).toBe(false);
   await expect(partial.save()).rejects.toThrow("Partial");
 });
+it('restores a session draft without changing training labels, and clears it only on save or discard', async () => {
+  const values = new Map<string, string>()
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage')
+  Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) } })
+  try {
+    const f = fixture(), first = await TrainingAnnotation.open(f.take, 0, [800], f.repository)
+    first.setAttack(800, 1000); first.saveDraft()
+    expect((await f.repository.read()).dataset.manifest.examples).toHaveLength(0)
+    const restored = await TrainingAnnotation.open(f.take, 0, [2000], f.repository)
+    expect(restored.restoredDraft).toBe(true)
+    expect(restored.example().desiredFrames).toEqual([1000])
+    expect(restored.dirty).toBe(true)
+    await restored.save()
+    expect(values.size).toBe(0)
+    expect((await f.repository.read()).dataset.manifest.examples[0].desiredFrames).toEqual([1000])
+    restored.setAttack(1000, 1100); restored.saveDraft(); restored.discardDraft()
+    const reopened = await TrainingAnnotation.open(f.take, 0, [], f.repository)
+    expect(reopened.example().desiredFrames).toEqual([1000])
+    expect(reopened.restoredDraft).toBe(false)
+  } finally { if (descriptor) Object.defineProperty(globalThis, 'sessionStorage', descriptor); else Reflect.deleteProperty(globalThis, 'sessionStorage') }
+})
+
+it("excludes only the selected saved example, retains shared audio, and permits redoing the bar", async () => {
+  const f = fixture();
+  const first = await TrainingAnnotation.open(f.take, 0, [1600], f.repository);
+  await first.save();
+  const second = await TrainingAnnotation.open(f.take, 1, [20000], f.repository);
+  await second.save();
+  const reopened = await TrainingAnnotation.open(f.take, 0, [], f.repository);
+  await reopened.exclude();
+  const remaining = await f.repository.read();
+  expect(remaining.dataset.manifest.examples.map(e => e.bar.startFrame)).toEqual([16800]);
+  expect(Object.keys(remaining.dataset.audio)).toHaveLength(1);
+  expect(reopened.savedExampleId).toBeNull();
+  expect(reopened.dirty).toBe(false);
+  await reopened.save();
+  expect((await f.repository.read()).dataset.manifest.examples).toHaveLength(2);
+});
+
+it('recuts beat one without moving source attacks and saves the edited reference', async () => {
+  const f = fixture();
+  const session = await TrainingAnnotation.open(f.take, 0, [1600, 8000], f.repository);
+  session.setBeatOne(1200);
+  expect(session.beatOneFrame).toBe(1200);
+  expect(session.bar).toEqual({ startFrame: 1200, endFrame: 17200 });
+  expect(session.example().desiredFrames).toEqual([1600, 8000]);
+  session.undo();
+  expect(session.beatOneFrame).toBe(800);
+  session.setBeatOne(1200);
+  await session.save();
+  expect((await f.repository.read()).dataset.manifest.examples[0].reference.beatOneFrame).toBe(1200);
+  expect(f.take.origin).toBe(.2);
+});
+
+it('starts a newly seeded bar clean and marks it dirty only after a user edit', async () => {
+  const f = fixture();
+  const session = await TrainingAnnotation.open(f.take, 0, [1600], f.repository);
+  expect(session.dirty).toBe(false);
+  session.setAttack(null, 2000);
+  expect(session.dirty).toBe(true);
+  session.undo();
+  expect(session.dirty).toBe(false);
+});

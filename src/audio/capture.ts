@@ -3,7 +3,9 @@ import { type DetectorSettings, type DetectorDiagnostics } from './detector-cont
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core'
 import { ForgettimeAudio, type NativeAudioFrame } from 'forgettime-audio'
 import type { CapturedPcm } from './recorded-take'
-import { OnsetDetector, type DetectedOnset } from './onset-detector'
+import { type DetectedOnset } from './onset-detector'
+import { createLiveDetector } from './live-detector'
+import type { OptimizerParameters } from './training-optimizer'
 import { WaveformEnvelopeCapture, type WaveformEnvelope } from './waveform-envelope'
 import type { MetronomePlan } from './metronome'
 import { BrowserOutputAlignment, browserLatencyEstimate, type BrowserLatencyEstimate } from './output-alignment'
@@ -60,7 +62,7 @@ export interface AudioCapture {
 }
 
 /** Foreground-only live capture. Native builds require the native plugin. */
-export function createAudioCapture(callbacks: CaptureCallbacks, options: { deviceId?: string; detectorSettings?: DetectorSettings; inputGain?: number } = {}): AudioCapture {
+export function createAudioCapture(callbacks: CaptureCallbacks, options: { deviceId?: string; detectorSettings?: DetectorSettings; inputGain?: number; profile?: OptimizerParameters } = {}): AudioCapture {
   let inputGain = normalizeInputGain(options.inputGain ?? 1)
   let generation = 0
   let running = false
@@ -77,7 +79,7 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
   let outputFailed = false
   let outputPending = false
   let latestPlan: MetronomePlan | null = null
-  const detector = new OnsetDetector(options.detectorSettings)
+  const detector = createLiveDetector(options.profile, options.detectorSettings)
   const waveform = new WaveformEnvelopeCapture()
   const outputAlignment = new BrowserOutputAlignment()
 
@@ -212,8 +214,11 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
             }
             const endFrame = pcm.startFrame + pcm.samples.length
             nativeClock = { sessionId: frame.sessionId, sampleRate: frame.sampleRate, endFrame }
-            callbacks.onFrame({ ...frame, source: 'native', pcm: {
-              startFrame: pcm.startFrame, samples: Float32Array.from(pcm.samples),
+            const retained = Float32Array.from(pcm.samples)
+            const selected = options.profile ? { onsets: detector.process(retained, pcm.startFrame / frame.sampleRate, frame.sampleRate), time: 0, diagnostics: detector.drainDiagnostics(), analysis: detector.analysis } : undefined
+            if (selected) selected.time = detector.processedThrough ?? pcm.startFrame / frame.sampleRate
+            callbacks.onFrame({ ...frame, ...selected, source: 'native', pcm: {
+              startFrame: pcm.startFrame, samples: retained,
             } })
             if (current()) {
               void ForgettimeAudio.acknowledgeFrame({ sessionId: frame.sessionId, endFrame }).catch(() => {
@@ -236,7 +241,7 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
           nativeSessionId = nativeInfo.sessionId
           nativeSession = nativeInfo.sessionId
           nativeRate = nativeInfo.sampleRate
-          info = { ...nativeInfo, source: 'native' }
+          info = { ...nativeInfo, source: 'native', ...(options.profile ? { analysis: detector.analysis, diagnosticsSupported: options.profile.family === 'current' } : {}) }
           for (const frame of pendingFrames) receiveNative(frame)
           pendingFrames.length = 0
           for (const event of pendingTerminals) receiveTerminal(event)
@@ -302,7 +307,7 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
               waveform: waveform.process(samples, time, sampleRate),
               pcm: { startFrame, samples },
               diagnostics: detector.drainDiagnostics(),
-              source: 'web', timestampQuality: 'sample-clock',
+              source: 'web', timestampQuality: 'sample-clock', analysis: detector.analysis,
             })
           }
           worklet.onprocessorerror = () => { if (current()) fail(new Error('Microphone audio processing stopped. Enable the microphone to restart.')) }
@@ -316,7 +321,7 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
           const track = acquiredStream.getAudioTracks()[0]
           const settings = track?.getSettings()
           info = {
-            source: 'web', sampleRate: currentContext.sampleRate, timestampQuality: 'sample-clock',
+            source: 'web', sampleRate: currentContext.sampleRate, timestampQuality: 'sample-clock', analysis: detector.analysis,
             inputLabel: track?.label, deviceId: settings?.deviceId,
             processing: {
               autoGainControl: settings?.autoGainControl,

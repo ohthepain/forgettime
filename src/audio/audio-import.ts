@@ -11,6 +11,12 @@ export interface AudioImportAdapter {
 }
 export type ImportPreparation = { kind: 'restored'; take: RecordedTake } | { kind: 'fallback'; file: ImportFile; bytes: ArrayBuffer; explanation: string } | { kind: 'setup'; file: ImportFile; audio: DecodedImportAudio; explanation: string }
 export type ImportState = Exclude<ImportPreparation, { kind: 'restored' }> & { bpm: number }
+/** Filename hint only; confirmation or a matching sidecar remains authoritative. */
+export function filenameTempo(name: string): number | null {
+  const stem = name.replace(/\.[^.]+$/, '');
+  const numbers = stem.match(/\d+(?:\.\d+)?/g) ?? [];
+  return numbers.map(Number).find(value => value >= 50 && value <= 300) ?? null;
+}
 export function browserImportFile(file: File): ImportFile { return { name: file.name, size: file.size, read: () => file.arrayBuffer() } }
 export function validateDecodedAudio(audio: DecodedImportAudio): DecodedImportAudio {
   if (!(audio.samples instanceof Float32Array) || !audio.samples.length || audio.samples.byteLength > MAX_PCM_BYTES || !Number.isInteger(audio.sampleRate) || audio.sampleRate < 8000 || audio.sampleRate > 192000 || audio.samples.length > audio.sampleRate * 120 || !Number.isInteger(audio.channels) || audio.channels < 1 || audio.channels > 8 || audio.samples.some(sample => !Number.isFinite(sample))) throw new Error('Decoded audio exceeds supported limits or contains invalid samples.')

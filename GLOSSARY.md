@@ -123,3 +123,45 @@ _Avoid_: Current replay results
 **Current analysis**:
 The results of the present replay run or offline comparison. It can differ from original analysis without changing the underlying performance or musical reference.
 _Avoid_: Original analysis
+
+### Training annotations
+
+**Training dataset**:
+A local collection of explicitly added training examples whose audio remains available independently of working takes and saved bars. An explicit export can carry the collection to another device.
+_Avoid_: Latest working take, saved-bars library
+
+**Source recording**:
+The audio from which training bars and their surrounding context originate. Bars from the same source remain related even when their desired attacks are corrected or they are transferred to another device.
+_Avoid_: Training example, exported filename
+
+**Training example**:
+One recorded bar with its source relationship, available surrounding audio and attack annotations. Surrounding audio provides context rather than additional labeled material.
+_Avoid_: Take, detector run
+
+**Desired attack**:
+A human-confirmed audible beginning of an attack at a position in the source audio, independently of the musical grid or current detector output. Distinguishable attacks receive separate annotations; simultaneous strokes sharing one audible attack share one annotation.
+_Avoid_: Intended hit, calculated onset
+
+**Uncertain region**:
+A passage whose attacks cannot be labeled confidently, with both desired attacks and calculated detections inside it excluded from training and accuracy scoring.
+_Avoid_: Silence, missing detection
+
+**Reviewed example**:
+A training example explicitly confirmed as fully checked for attacks outside its uncertain regions; changing annotations or the reviewed audio boundaries requires renewed confirmation. An example with no desired attacks can be reviewed when the absence of attacks has been confirmed.
+_Avoid_: Unedited detector output
+
+**Withheld recording**:
+A source recording reserved for evaluating a chosen detector configuration and excluded from parameter optimization. Related recordings and excerpts stay together to keep evaluation independent of the material used for tuning.
+_Avoid_: Training recording
+
+**Onset error**:
+The signed difference between a calculated onset and its matched desired attack: positive is late and negative is early. It measures detection against the audible attack rather than the player's timing against a musical grid.
+_Avoid_: Musical timing error
+
+**Review profile**:
+A named detector configuration explicitly saved for import and replay, independently of live capture defaults. Its parameters remain fixed even when changes to the training dataset make its evaluation evidence outdated.
+_Avoid_: Live defaults, current analysis
+
+**Optimization run**:
+A bounded search for detector parameters against a declared training dataset and scoring policy. Its result identifies the inputs and settings evaluated without making withheld recordings part of the search.
+_Avoid_: Replay run, acoustic validation

@@ -1,9 +1,13 @@
+import { selectedMicrophoneProfile } from './live-detector'
+import { createTrainingSampleCatalog } from './training-sample-catalog'
+import { prepareTrainingImport, type PendingTrainingSample, type TrainingImportReport } from './training-import'
+import { createLocalTrainingRepository } from './training-dataset'
 import { DEFAULT_FREQUENCY_BALANCE, normalizeFrequencyBalance } from './frequency-evidence'
 import { createLatestPerformanceRepository } from './latest-performance'
 import { AutomaticGain } from './automatic-gain'
 import { usePreferences } from '../lib/preferences'
 import { createNativeBarFiles } from './native-files'
-import { browserAudioImport, prepareAudioImport, decodeImportAudio, importedMaterial, type ImportFile, type ImportState } from './audio-import'
+import { browserAudioImport, filenameTempo, prepareAudioImport, decodeImportAudio, importedMaterial, type ImportFile, type ImportState } from './audio-import'
 import { createBarFiles, restoreBarFiles } from './bar-files'
 import { createBrowserSavedBars, requestBrowserDownload, type BarFileOptions, type SavedBarSummary } from './saved-bars'
 import { DEFAULT_DETECTOR_SETTINGS, normalizeDetectorSettings, MAX_DIAGNOSTIC_CANDIDATES, type ReviewedCandidate, type DetectorSettings } from './detector-contract'
@@ -51,6 +55,19 @@ export function usePractice(bpm: number, mode: InterpretationMode, inputGain = D
   const [importBusy, setImportBusy] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
   const [importNotice, setImportNotice] = useState<string | null>(null)
+  const [trainingSamples, setTrainingSamples] = useState<PendingTrainingSample[]>([])
+  const pendingSamples = useRef<PendingTrainingSample[]>([])
+  const sampleCatalog = useMemo(() => fileOptions.trainingSamples === undefined ? (typeof indexedDB === 'undefined' ? null : createTrainingSampleCatalog()) : fileOptions.trainingSamples, []);
+  const catalogReady = useRef<Promise<void>>(Promise.resolve());
+  useEffect(() => {
+    let alive = true;
+    catalogReady.current = sampleCatalog ? sampleCatalog.read().then(samples => {
+      if (alive) { pendingSamples.current = samples; setTrainingSamples(samples); }
+    }) : Promise.resolve();
+    void catalogReady.current.catch(cause => { if (alive) setImportError((cause as Error).message); });
+    return () => { alive = false; };
+  }, [sampleCatalog]);
+  const [trainingImportReport, setTrainingImportReport] = useState<TrainingImportReport>({ duplicates: [], errors: [] })
   const importGeneration = useRef(0)
   const repository = useRef(fileOptions.savedBars ?? platformFiles.savedBars ?? (!Capacitor.isNativePlatform() && typeof indexedDB !== 'undefined' ? createBrowserSavedBars() : undefined))
   const download = useRef(fileOptions.exportFile ?? requestBrowserDownload)
@@ -213,6 +230,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, inputGain = D
     automaticGain.current.reset()
     setGainAdjustment(value => ({ adjusting: false, limited: false, take: value.take + 1 }))
     const captureGain = gain.current
+    const microphoneProfile = selectedMicrophoneProfile()
     const audio = createAudioCapture({
       onFrame: frame => {
         if (generation.current !== activeGeneration) return
@@ -256,7 +274,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, inputGain = D
           const state = engine.current.snapshot(onset.time)
           if (state.status === 'playing' && state.phaseOrigin === onset.time) {
             setRecordedTake(null)
-            recorder.current.begin(onset.time, { ...settings.current, detector: frame.source === 'web' || frame.diagnostics ? { ...DEFAULT_DETECTOR_SETTINGS } : undefined }, frame.source, frame.analysis)
+            recorder.current.begin(onset.time, { ...settings.current, detector: microphoneProfile ? microphoneProfile.family === 'current' ? { version: 1, minimumRms: microphoneProfile.minimumRms, contrastRatio: microphoneProfile.contrastRatio, minSeparationMs: microphoneProfile.minSeparationMs, recoverySeconds: microphoneProfile.recoverySeconds } : undefined : frame.source === 'web' || frame.diagnostics ? { ...DEFAULT_DETECTOR_SETTINGS } : undefined }, frame.source, frame.analysis)
           }
           const acquisition: ReviewedCandidate['acquisition'] = state.phaseOrigin === onset.time ? 'started'
             : state.lastHitTime === onset.time ? 'not-required'
@@ -320,7 +338,7 @@ export function usePractice(bpm: number, mode: InterpretationMode, inputGain = D
         setOutputNotice(message)
         setMetronomeActive(false)
       },
-    }, { deviceId, detectorSettings: { ...DEFAULT_DETECTOR_SETTINGS }, inputGain: captureGain })
+    }, { deviceId, detectorSettings: { ...DEFAULT_DETECTOR_SETTINGS }, inputGain: captureGain, profile: microphoneProfile })
     capture.current = audio
     try {
       const info = await audio.start()
@@ -496,37 +514,68 @@ export function usePractice(bpm: number, mode: InterpretationMode, inputGain = D
     return active
   }, [stop])
   const cancelImport = useCallback(async () => { await beginImport(); setImportNotice('Import cancelled. Previous review is available; microphone is off.') }, [beginImport])
-  const importFiles = useCallback(async (files: readonly ImportFile[]) => {
+  const importFiles = useCallback(async (files: readonly ImportFile[], directAnnotation = false) => {
     const active = await beginImport()
     if (generation.current !== active) return
     if (!files.length) { setImportNotice('No files selected. Previous review is available; microphone is off.'); return }
     setImportBusy(true)
     try {
+      if (directAnnotation) {
+        setTrainingImportReport({ duplicates: [], errors: [] });
+        await catalogReady.current;
+        const stored = typeof indexedDB !== 'undefined' ? await createLocalTrainingRepository().read() : null;
+        if (generation.current !== active) return;
+        const included = new Set(stored?.dataset.manifest.sources.map(source => source.checksum) ?? []);
+        const retained = pendingSamples.current;
+        const known = new Set([...included, ...retained.map(sample => sample.checksum)]);
+        const bytes = retained.filter(sample => !included.has(sample.checksum)).reduce((sum, sample) => sum + sample.take.audio.samples.byteLength, 0) + Object.values(stored?.dataset.audio ?? {}).reduce((sum, pcm) => sum + pcm.byteLength, 0);
+        const batch = await prepareTrainingImport(files, importer.current, { ...settings.current }, known, bytes, Math.max(0, 100 - known.size), () => generation.current === active);
+        if (generation.current !== active) return;
+        const nextSamples = sampleCatalog && batch.samples.length ? await sampleCatalog.add(batch.samples) : [...retained, ...batch.samples];
+        if (generation.current !== active) return;
+        pendingSamples.current = nextSamples;
+        setTrainingSamples(nextSamples);
+        setTrainingImportReport(batch.report);
+        if (batch.fallback) setImportState({ ...batch.fallback, bpm: filenameTempo(batch.fallback.file.name) ?? settings.current.bpm });
+        else if (batch.samples[0]) installMaterial(batch.samples[0].take);
+        if (batch.samples.length) setImportNotice(`${batch.samples.length} samples loaded.`);
+        return;
+      }
       const prepared = await prepareAudioImport(files, importer.current)
       if (generation.current !== active) return
       if (prepared.kind === 'restored') { installMaterial(prepared.take); setImportNotice('Audio and original context restored from the matching .forget file.') }
-      else setImportState({ ...prepared, bpm: settings.current.bpm })
+      else {
+        const bpm = filenameTempo(prepared.file.name) ?? settings.current.bpm;
+        if (directAnnotation && prepared.kind === 'setup') {
+          installMaterial(importedMaterial({ ...prepared, bpm }, { ...settings.current, bpm }, 0));
+        } else setImportState({ ...prepared, bpm });
+      }
     } catch (cause) { if (generation.current === active) setImportError(cause instanceof Error ? cause.message : 'Import failed.') }
     finally { if (importGeneration.current === active) setImportBusy(false) }
-  }, [beginImport, installMaterial])
-  const chooseImportFiles = useCallback(async () => {
+  }, [beginImport, installMaterial, sampleCatalog])
+  const chooseImportFiles = useCallback(async (directAnnotation = false) => {
     const active = await beginImport()
     if (!importer.current.pick) return
     try {
       const files = await importer.current.pick()
-      if (generation.current === active) await importFiles(files)
+      if (generation.current === active) await importFiles(files, directAnnotation)
     } catch (cause) { if (generation.current === active) setImportError(cause instanceof Error ? cause.message : 'File selection failed.') }
   }, [beginImport, importFiles])
-  const useImportAudioOnly = useCallback(async () => {
+  const useImportAudioOnly = useCallback(async (directAnnotation = false) => {
     if (importState?.kind !== 'fallback' || importBusy) return
+    if (directAnnotation) { await importFiles([importState.file], true); return; }
     const active = importGeneration.current
     setImportBusy(true); setImportError(null)
     try {
       const audio = await decodeImportAudio(importState.file, importState.bytes, importer.current)
-      if (generation.current === active) setImportState({ kind: 'setup', file: importState.file, bpm: importState.bpm, audio, explanation: 'Using audio only. Original metadata and detection results were not restored. Confirm tempo and beat one.' })
+      if (generation.current === active) {
+        const setup = { kind: 'setup' as const, file: importState.file, bpm: importState.bpm, audio, explanation: 'Using audio only. Original metadata and detection results were not restored.' };
+        if (directAnnotation) installMaterial(importedMaterial(setup, { ...settings.current, bpm: setup.bpm }, 0));
+        else setImportState(setup);
+      }
     } catch (cause) { if (generation.current === active) setImportError(cause instanceof Error ? cause.message : 'Audio decoding failed.') }
     finally { if (importGeneration.current === active) setImportBusy(false) }
-  }, [importState, importBusy])
+  }, [importState, importBusy, installMaterial, importFiles])
   const confirmImport = useCallback(async (confirmedBpm: number, beatOne: number) => {
     if (importState?.kind !== 'setup' || importBusy || generation.current !== importGeneration.current) return
     try {
@@ -582,5 +631,5 @@ export function usePractice(bpm: number, mode: InterpretationMode, inputGain = D
     finally { setLibraryBusy(false) }
   }, [libraryBusy])
 
-  return { frequencyBalance, configureBalance, gainAdjustment, manualInputGain, detectionSensitivity, configureSensitivity, exportSavedPair, pairedExportSupported: Boolean(pairedExport.current), importState, importBusy, importError, importNotice, beginImport, cancelImport, importFiles, chooseImportFiles, useImportAudioOnly, confirmImport, nativeImportPicker: Boolean(importer.current.pick), savedBars, libraryBusy, libraryError, libraryNotice, savedBarsSupported, saveSelectedBar, openSavedBar, exportSavedFile, openRecordedMaterial, liveDiagnostics, detectorSettings, configureDetector, resetDetector, detectorSettingsSupported: source !== 'microphone' && !busy, playBar, restartReplay, replayState, recordedTake, reviewBar, reviewBarIndex, reviewBarCount, previousBar, nextBar, reviewCurrentBar, recordingNotice, snapshot, captureTime: now.current, waveform, waveformSource, source, captureMode, busy, error, captureInfo, captureNotice, outputNotice, metronomeActive, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
+  return { trainingSamples, trainingImportReport, frequencyBalance, configureBalance, gainAdjustment, manualInputGain, detectionSensitivity, configureSensitivity, exportSavedPair, pairedExportSupported: Boolean(pairedExport.current), importState, importBusy, importError, importNotice, beginImport, cancelImport, importFiles, chooseImportFiles, useImportAudioOnly, confirmImport, nativeImportPicker: Boolean(importer.current.pick), savedBars, libraryBusy, libraryError, libraryNotice, savedBarsSupported, saveSelectedBar, openSavedBar, exportSavedFile, openRecordedMaterial, liveDiagnostics, detectorSettings, configureDetector, resetDetector, detectorSettingsSupported: source !== 'microphone' && !busy, playBar, restartReplay, replayState, recordedTake, reviewBar, reviewBarIndex, reviewBarCount, previousBar, nextBar, reviewCurrentBar, recordingNotice, snapshot, captureTime: now.current, waveform, waveformSource, source, captureMode, busy, error, captureInfo, captureNotice, outputNotice, metronomeActive, level, listen, stop, simulate, inputDevices, canSelectInput, deviceId, setDeviceId }
 }

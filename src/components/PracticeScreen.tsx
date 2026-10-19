@@ -1,11 +1,14 @@
-import { TrainingOptimizer } from "./TrainingOptimizer"
+import { createTrainingSource } from '../audio/training-contract'
+import { createLocalTrainingRepository } from '../audio/training-dataset'
+import { trainingNavigation, allowWorkspaceNavigation, useTrainingSession } from "../lib/training-session"
 import { DetectionSensitivity } from "./DetectionSensitivity"
 import { TrainingAnnotationEditor } from "./TrainingAnnotationEditor"
 import type { RecordedTake } from "../audio/recorded-take"
 import { RecordControl } from './RecordControl'
 import { AudioImportControls } from './AudioImportControls'
-import { useEffect, useState } from 'react'
-import { AudioLines, CircleHelp, Settings, UserRound } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { useEffect, useRef, useState } from 'react'
+import { AudioLines, CircleHelp, Settings, UserRound, CircleCheck, Trash2 } from 'lucide-react'
 import { usePreferences } from '../lib/preferences'
 import { usePractice } from '../audio/use-practice'
 import { usePresentedHits } from '../audio/use-presented-hits'
@@ -19,13 +22,15 @@ import type { InterpretationMode } from '../audio/engine'
 const MODES: { value: InterpretationMode; label: string }[] = [
   { value: 'auto', label: 'Auto' }, { value: 'straight', label: 'Straight' }, { value: 'swing', label: 'Swing / triplet' },
 ]
-export function PracticeScreen() {
+export function PracticeScreen({ active = true }: { active?: boolean } = {}) {
   const { bpm, mode, inputGain, setBpm, setMode, metronomeEnabled, metronomeMode, helpThresholdMs } = usePreferences()
   const [annotation, setAnnotation] = useState<{ take: RecordedTake; index: number } | null>(null)
   const [annotationCloseRequest, setAnnotationCloseRequest] = useState(0)
   const [annotationOpening, setAnnotationOpening] = useState(false)
-  const [optimizerRunning, setOptimizerRunning] = useState(false)
-  const annotationActive = Boolean(annotation) || annotationOpening || optimizerRunning
+  const optimizerRunning = useTrainingSession(s => s.running)
+  const optimizerProgress = useTrainingSession(s => s.progress)
+  const pendingNavigation = useRef<((allowed: boolean) => void) | null>(null)
+  const annotationActive = Boolean(annotation) || annotationOpening
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [candidatePage, setCandidatePage] = useState(0)
   const [inspectedCandidate, setInspectedCandidate] = useState<InspectableCandidate | null>(null)
@@ -35,8 +40,54 @@ export function PracticeScreen() {
   const [helpOpen, setHelpOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const practice = usePractice(bpm, mode, inputGain, { enabled: metronomeEnabled, mode: metronomeMode, thresholdMs: helpThresholdMs })
+  const pendingAnnotation = useRef<{ previous: RecordedTake | null } | null>(null);
+  function beginTrainingImport() { pendingAnnotation.current = { previous: practice.recordedTake }; }
+  useEffect(() => {
+    if (active || !pendingAnnotation.current || practice.importBusy || practice.importState || !practice.recordedTake || practice.recordedTake === pendingAnnotation.current.previous) return;
+    pendingAnnotation.current = null;
+    setAnnotation({ take: practice.recordedTake, index: 0 });
+  }, [active, practice.recordedTake, practice.importBusy, practice.importState]);
+  useEffect(() => {
+    useTrainingSession.setState({ samples: practice.trainingSamples.map(({ checksum, name }) => ({ checksum, name })), importReport: practice.trainingImportReport });
+    trainingNavigation.openSample = async checksum => {
+      const sample = practice.trainingSamples.find(sample => sample.checksum === checksum);
+      if (!sample) return;
+      pendingAnnotation.current = { previous: practice.recordedTake };
+      await practice.openRecordedMaterial(sample.take);
+      setAnnotation({ take: sample.take, index: 0 });
+    };
+    return () => { trainingNavigation.openSample = undefined; };
+  }, [practice.trainingSamples, practice.trainingImportReport, practice.openRecordedMaterial, practice.recordedTake]);
+  const [trainingHost, setTrainingHost] = useState<HTMLElement | null>(null)
+  useEffect(() => { setTrainingHost(document.getElementById("training-import-panel")) }, [])
   const { snapshot, source, busy, error } = practice
+  useEffect(() => {
+    trainingNavigation.guards.set("practice", async () => {
+      if (annotation) {
+        const allowed = await new Promise<boolean>(resolve => { pendingNavigation.current = resolve; setAnnotationCloseRequest(n => n + 1) })
+        if (!allowed) return false
+      }
+      if (practice.importState || practice.importBusy) {
+        if (!window.confirm('Discard unfinished import and leave this page?')) return false
+        await practice.cancelImport()
+      }
+      await practice.stop()
+      return true
+    })
+    return () => { trainingNavigation.guards.delete("practice") }
+  }, [active, annotation, practice.importState, practice.importBusy, practice.cancelImport, practice.stop])
+  useEffect(() => {
+    useTrainingSession.setState({ current: { family: 'current', minimumRms: practice.detectorSettings.minimumRms, contrastRatio: practice.detectorSettings.contrastRatio, minSeparationMs: practice.detectorSettings.minSeparationMs, recoverySeconds: practice.detectorSettings.recoverySeconds, frequencyBalance: practice.frequencyBalance } })
+  }, [practice.detectorSettings, practice.frequencyBalance])
+  const adopted = useTrainingSession(s => s.adopt)
+  useEffect(() => {
+    if (!adopted) return
+    if (adopted.family === 'mel' || source === 'microphone') { useTrainingSession.setState({ adopt: null }); return }
+    void practice.stop().then(async () => { const { family: _family, frequencyBalance, ...settings } = adopted; await practice.configureDetector({ version: 1, ...settings }); await practice.configureBalance(frequencyBalance); useTrainingSession.setState({ adopt: null }) })
+  }, [adopted, source, practice.stop, practice.configureDetector, practice.configureBalance])
+
   const importPending = practice.importBusy || Boolean(practice.importState)
+  useEffect(() => { useTrainingSession.setState({ annotating: annotationActive, importing: importPending }) }, [annotationActive, importPending])
   const running = source !== 'off'
   const playing = snapshot.status === 'playing'
   const showBeat = running && playing && snapshot.beat !== null
@@ -45,6 +96,36 @@ export function PracticeScreen() {
   const currentHits = replay?.onsets.filter(hit => hit.iteration === replay.iteration) ?? []
   const currentResults = replay?.results.filter(hit => hit.iteration === replay.iteration) ?? []
   const originalTake = practice.recordedTake
+  const headerAudio = practice.importState?.kind === "setup" ? practice.importState.audio : originalTake?.audio;
+  const headerName = practice.importState?.file.name || originalTake?.provenance?.name || "Recorded take";
+  const [membership, setMembership] = useState<{ checksum: string; fingerprint: string; included: boolean } | null>(null);
+  const [removingSource, setRemovingSource] = useState(false);
+  const [sourceError, setSourceError] = useState('');
+  useEffect(() => {
+    let alive = true;
+    setMembership(null);
+    async function updateMembership() {
+      if (!headerAudio) return;
+      try {
+        const pcm = await createTrainingSource([headerAudio.samples], headerAudio.sampleRate, { kind: 'unknown', beginningAvailable: false, endAvailable: false });
+        const snapshot = await createLocalTrainingRepository().read();
+        if (alive) setMembership({ checksum: pcm.source.checksum, fingerprint: snapshot.fingerprint, included: snapshot.dataset.manifest.examples.some(example => example.sourceChecksum === pcm.source.checksum) });
+      } catch { /* Dataset errors are shown by the Training page. */ }
+    }
+    void updateMembership();
+    window.addEventListener('forgettime-training-changed', updateMembership);
+    return () => { alive = false; window.removeEventListener('forgettime-training-changed', updateMembership); };
+  }, [headerAudio]);
+  async function removeTrainingSource() {
+    if (!membership?.included) return;
+    setRemovingSource(true);
+    setSourceError('');
+    try {
+      const fingerprint = await createLocalTrainingRepository().deleteSource(membership.checksum, membership.fingerprint, true);
+      setMembership({ ...membership, fingerprint, included: false });
+    } catch (cause) { setSourceError((cause as Error).message); }
+    finally { setRemovingSource(false); }
+  }
   const originalAvailable = Boolean(originalTake && (originalTake.source === 'web' || originalTake.source === 'native' || originalTake.provenance?.kind === 'capture' || originalTake.analysis || originalTake.diagnostics || originalTake.onsets.length || originalTake.results.length))
   const originalResults = review ? practice.recordedTake?.results.filter(hit => hit.time >= review.start && hit.time < review.end) ?? [] : []
   const reviewWaveform = review ? { ...review.waveform, progress: source === 'replay' && replay ? replay.progress : review.waveform.progress, hits: currentComparison && replay ? currentHits : review.waveform.hits } : null
@@ -89,9 +170,32 @@ export function PracticeScreen() {
     if (Number.isFinite(next) && next >= 30 && next <= 300) setBpm(next)
     else setTempoText(String(bpm))
   }
-  return <main className="app-shell">
-    <header className="app-header"><a className="wordmark" href="/" aria-label="Forgettime home" onClick={event => { if (annotation) { event.preventDefault(); setAnnotationCloseRequest(n => n + 1) } }}><AudioLines size={21} strokeWidth={1.5} />forgettime<span className="wordmark-dot">.</span></a>
-      <div className="header-actions"><button className="icon-button" onClick={() => setHelpOpen(!helpOpen)} aria-label="How it works" aria-expanded={helpOpen}><CircleHelp size={19} /></button><button className="icon-button" onClick={() => setAccountOpen(true)} aria-label="Your account"><UserRound size={19} /></button><button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label="Settings" aria-haspopup="dialog" aria-expanded={settingsOpen}><Settings size={19} /></button></div>
+  const reviewDisplay = <BarWaveform waveform={reviewWaveform ?? practice.waveform} source={source === 'replay' ? 'replay' : review ? 'microphone' : source === 'off' && practice.waveform.review ? practice.waveformSource : source}
+        status={snapshot.status}
+        diagnostics={detailsOpen && source !== 'simulation' ? { candidates: visibleCandidates, selectedId: inspectedCandidate?.id, select: inspectCandidate } : undefined}
+        review={review ? { originalAvailable, index: practice.reviewBarIndex, count: practice.reviewBarCount, availableFraction: review.availableFraction, interrupted: review.endReason === 'interrupted', previous: () => void practice.previousBar(), next: () => void practice.nextBar(), select: () => void practice.reviewCurrentBar(), loop: () => void (source === 'replay' ? practice.stop() : practice.playBar()), canLoop: review.complete && !busy } : undefined}
+        comparison={review && replay ? { current: currentComparison, select: setCurrentComparison } : undefined} />
+  const trainingTools = <>
+    {(originalTake || practice.importState) && <div className="training-file-heading">
+      <h2>{headerName}</h2>
+      {membership?.included ? <CircleCheck role="img" className="training-included" aria-label="Included in training dataset" size={22} /> : <span className="training-new-pill">New</span>}
+      {membership?.included && <button aria-label="Remove file from training dataset" title="Remove file and all its training bars" disabled={annotationActive || importPending || removingSource} onClick={() => void removeTrainingSource()}><Trash2 size={18} /></button>}
+    </div>}
+    {sourceError && <p role="alert">{sourceError}</p>}
+    {!annotationActive && !importPending && review && !active && reviewDisplay}
+      {review && !annotation && <button className="annotation-launch" data-testid="open-training-annotation" disabled={busy || importPending || annotationOpening} onClick={() => { const take = practice.recordedTake, index = practice.reviewBarIndex; if (!take) return; setAnnotationOpening(true); void practice.stop().then(() => { setAnnotation({ take, index }); setAnnotationOpening(false) }).catch(() => setAnnotationOpening(false)) }}>Annotate training attacks</button>}
+      {annotation && <DetectionSensitivity frequencyBalance={practice.frequencyBalance} changeBalance={value => void practice.configureBalance(value)} value={practice.detectionSensitivity} disabled={false} change={value => void practice.configureSensitivity(value)} />}
+      {annotation && <TrainingAnnotationEditor closeRequest={annotationCloseRequest} take={annotation.take} initialIndex={annotation.index} settings={practice.detectorSettings} balance={practice.frequencyBalance} onStay={() => { pendingNavigation.current?.(false); pendingNavigation.current = null }} onClose={() => { setAnnotation(null); pendingNavigation.current?.(true); pendingNavigation.current = null }} />}
+      {!annotationActive && <AudioImportControls showImportButton={false} practice={{ ...practice,
+        beginImport: () => { beginTrainingImport(); return practice.beginImport(); },
+        importFiles: files => { beginTrainingImport(); return practice.importFiles(files, true); },
+        chooseImportFiles: () => { beginTrainingImport(); return practice.chooseImportFiles(true); },
+        useImportAudioOnly: () => { beginTrainingImport(); return practice.useImportAudioOnly(true); },
+        cancelImport: () => { pendingAnnotation.current = null; return practice.cancelImport(); }, detectorSettingsSupported: practice.detectorSettingsSupported || Boolean(review && source === 'microphone'), configureBalance: value => inspectReview(() => practice.configureBalance(value)), configureSensitivity: value => inspectReview(() => practice.configureSensitivity(value)) }} />}
+  </>
+  return <><main className="app-shell">
+    <header className="app-header"><a className="wordmark" href="/" aria-label="Forgettime home" onClick={event => { if (trainingNavigation.go) { event.preventDefault(); trainingNavigation.go('/') } else if (annotation) { event.preventDefault(); setAnnotationCloseRequest(n => n + 1) } }}><AudioLines size={21} strokeWidth={1.5} />forgettime<span className="wordmark-dot">.</span></a>
+      <div className="header-actions"><a data-testid="training-nav" className="training-link" href="/training" onClick={event => { event.preventDefault(); if (trainingNavigation.go) trainingNavigation.go('/training'); else void allowWorkspaceNavigation().then(allowed => { if (allowed) window.location.assign('/training') }) }}>Training{optimizerRunning ? <span className="training-run-indicator" role="status" title={optimizerProgress || 'Optimization running'}> · Running</span> : null}</a><button className="icon-button" onClick={() => setHelpOpen(!helpOpen)} aria-label="How it works" aria-expanded={helpOpen}><CircleHelp size={19} /></button><button className="icon-button" onClick={() => setAccountOpen(true)} aria-label="Your account"><UserRound size={19} /></button><button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label="Settings" aria-haspopup="dialog" aria-expanded={settingsOpen}><Settings size={19} /></button></div>
     </header>
     <section className="tempo-card" aria-label="Drum timing practice">
       <div className="practice-toolbar" role="group" aria-label="Practice controls">
@@ -109,7 +213,7 @@ export function PracticeScreen() {
         </button>
         <div className="bpm-control"><input id="bpm" aria-label="Tempo in beats per minute" inputMode="numeric" type="number" min={30} max={300} step={1} value={source === 'replay' ? snapshot.bpm : tempoText} disabled={annotationActive || busy || source === 'simulation' || source === 'replay'} onChange={event => setTempoText(event.target.value)} onBlur={commitTempo} onKeyDown={event => { if (event.key === 'Enter') { commitTempo(); event.currentTarget.blur() } }} /><label htmlFor="bpm">BPM</label></div>
       </div>
-      {(source === 'simulation' || source === 'replay' || (review && source === 'off')) && <p className="practice-label">{source === 'simulation' ? 'SIMULATION' : source === 'replay' ? 'BAR REPLAY' : 'BAR REVIEW'}</p>}
+      {(source === 'simulation' || source === 'replay') && <p className="practice-label">{source === 'simulation' ? 'SIMULATION' : 'BAR REPLAY'}</p>}
       {status && <p className="playing-status" role="status"><span className={`status-dot ${running ? 'active' : ''}`} />{status}</p>}
       <div className="timing-meter" role="img" aria-label="Timing meter. Early hits appear left, late hits right. Each line fades over one second.">
         <div className="centre-band" /><div className="centre-line" />
@@ -118,16 +222,9 @@ export function PracticeScreen() {
       </div>
       <div className="meter-scale"><span>−100 ms</span><span>0</span><span>+100 ms</span></div>
       {detail && <div className="result-area"><p className={latest?.uncertain ? 'result uncertain' : 'result'}>{detail}</p><p className="result-note">{latest?.uncertain ? 'No timing score for this hit' : playing ? 'Reference stays fixed as you play' : null}</p></div>}
-      {!annotation && <BarWaveform waveform={reviewWaveform ?? practice.waveform} source={source === 'replay' ? 'replay' : review ? 'microphone' : source === 'off' && practice.waveform.review ? practice.waveformSource : source}
-        status={snapshot.status}
-        diagnostics={detailsOpen && source !== 'simulation' ? { candidates: visibleCandidates, selectedId: inspectedCandidate?.id, select: inspectCandidate } : undefined}
-        review={review ? { originalAvailable, index: practice.reviewBarIndex, count: practice.reviewBarCount, availableFraction: review.availableFraction, interrupted: review.endReason === 'interrupted', previous: () => void practice.previousBar(), next: () => void practice.nextBar(), select: () => void practice.reviewCurrentBar(), loop: () => void (source === 'replay' ? practice.stop() : practice.playBar()), canLoop: review.complete && !busy } : undefined}
-        comparison={review && replay ? { current: currentComparison, select: setCurrentComparison } : undefined} />}
-      {review && !annotation && <button disabled={busy || importPending || annotationOpening || optimizerRunning} onClick={() => { const take = practice.recordedTake, index = practice.reviewBarIndex; if (!take) return; setAnnotationOpening(true); void practice.stop().then(() => { setAnnotation({ take, index }); setAnnotationOpening(false) }).catch(() => setAnnotationOpening(false)) }}>Annotate training attacks</button>}
-      {annotation && <DetectionSensitivity frequencyBalance={practice.frequencyBalance} changeBalance={value => void practice.configureBalance(value)} value={practice.detectionSensitivity} disabled={false} change={value => void practice.configureSensitivity(value)} />}
-      {annotation && <TrainingAnnotationEditor closeRequest={annotationCloseRequest} take={annotation.take} initialIndex={annotation.index} settings={practice.detectorSettings} balance={practice.frequencyBalance} onClose={() => setAnnotation(null)} />}
-      {!annotationActive && <AudioImportControls practice={{ ...practice, detectorSettingsSupported: practice.detectorSettingsSupported || Boolean(review && source === 'microphone'), configureBalance: value => inspectReview(() => practice.configureBalance(value)), configureSensitivity: value => inspectReview(() => practice.configureSensitivity(value)) }} />}
-      <TrainingOptimizer starting={{ family: "current", minimumRms: practice.detectorSettings.minimumRms, contrastRatio: practice.detectorSettings.contrastRatio, minSeparationMs: practice.detectorSettings.minSeparationMs, recoverySeconds: practice.detectorSettings.recoverySeconds, frequencyBalance: practice.frequencyBalance }} disabled={Boolean(annotation) || annotationOpening || importPending || busy} beforeStart={() => practice.stop()} runningChanged={setOptimizerRunning} />
+      {!annotation && active && reviewDisplay}
+
+
       <section className="saved-bars" aria-label="Saved bars">
         {review && <button disabled={annotationActive || practice.libraryBusy || !practice.savedBarsSupported} onClick={() => void practice.saveSelectedBar()}>Save bar on device</button>}
         <details><summary>Saved bars ({practice.savedBars.length})</summary>
@@ -165,7 +262,7 @@ export function PracticeScreen() {
       {practice.captureNotice && <p className="capture-notice" role="status">{practice.captureNotice}</p>}
       {practice.outputNotice && <p className="capture-notice" role="status">{practice.outputNotice}</p>}
       {source === 'microphone' && hasInputProcessing && <p className="capture-notice" role="status">This microphone reports sound processing still enabled. Try another input if drum attacks are being missed.</p>}
-      {source === 'microphone' && <p className="source-note"><span className="input-level" aria-hidden="true"><i style={{ transform: `scaleX(${Math.min(1, practice.level * 4)})` }} /></span>{practice.captureInfo?.source === 'native' ? 'Native microphone' : practice.captureInfo?.inputLabel || 'Browser microphone'} · live audio</p>}
+      {source === 'microphone' && <p className="source-note"><span className="input-level" aria-hidden="true"><i style={{ transform: `scaleX(${Math.min(1, practice.level * 4)})` }} /></span>{practice.captureInfo?.source === 'native' ? 'Native microphone' : practice.captureInfo?.inputLabel || 'Browser microphone'} · live audio{practice.captureInfo?.analysis?.implementation?.startsWith('selected-') ? ` · Selected ${practice.captureInfo.analysis.implementation.slice(9)} profile` : ' · Default detector'}</p>}
       {source === 'replay' && <p className="source-note">Recorded audio · microphone and Auto are off</p>}
       {source === 'simulation' && <p className="source-note demo-label">Generated hits · microphone is off</p>}
     </section>
@@ -173,5 +270,5 @@ export function PracticeScreen() {
     {helpOpen && <section className="help-panel"><h2>Make room for the groove.</h2><p>Choose a tempo, enable the microphone, then play. Your first strong hit sets beat 1 immediately. The clock stays fixed, so drifting ahead or behind remains visible.</p><p>Auto considers straight and triplet rhythms across a short sequence. Straight uses eighths and sixteenths; Swing / triplet uses triplet subdivisions. Fills need a little interpretation time. Ambiguous attacks get no precise score.</p><p>Play the starting hit on your intended downbeat. The counter continues through gaps shorter than a full bar. After a full bar without a hit, a single take ends and the microphone stops. Hold the record button for Auto to keep listening and start a fresh take with your next strong hit. Stop ends either mode. Use Input gain beside Record to adjust incoming microphone audio. Detection sensitivity in the imported-audio section tunes import and replay analysis only.</p><p>Audio stays on your device. The latest take is held in memory for bar review, up to two minutes; a new take replaces it and closing the app discards it unless you choose Save bar on device. Saved bars remain in local app storage. Export both the WAV and .forget files for a portable copy before clearing app or browser storage. Quiet hits under cymbals may be missed. Device timing accuracy still needs real-world calibration. Changing tempo or interpretation starts a fresh reference.</p></section>}
     {accountOpen && <AccountDialog onClose={() => setAccountOpen(false)} />}
     {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} metronomeActive={practice.metronomeActive} simulation={source === 'simulation'} />}
-  </main>
+  </main>{trainingHost && createPortal(trainingTools, trainingHost)}</>
 }

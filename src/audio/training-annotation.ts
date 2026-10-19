@@ -1,6 +1,7 @@
 import type { RecordedTake } from "./recorded-take";
 import {
   createTrainingSource,
+  validateTrainingManifest,
   trainingBarFrames,
   trainingCoverage,
   trainingExampleId,
@@ -12,15 +13,17 @@ import type { createTrainingRepository } from "./training-dataset";
 import { emptyTrainingDataset } from "./training-transfer";
 
 export type AnnotationRepository = ReturnType<typeof createTrainingRepository>;
-type Draft = { bpm: number; desired: number[]; uncertain: FrameRange[] };
+type Draft = { bpm: number; beatOneFrame: number; desired: number[]; uncertain: FrameRange[] };
 /** One selected bar, with source-wide labels retained across tempo recuts. */
 export class TrainingAnnotation {
   private history: Draft[] = [];
   private baseline: string;
   private fingerprint: string;
   private existing: Map<string, TrainingExample>;
+  private savedId: string | null = null;
   draft: Draft;
-  readonly beatOneFrame: number;
+  restoredDraft = false;
+  private readonly initialBeatOneFrame: number;
   private constructor(
     readonly take: RecordedTake,
     readonly index: number,
@@ -30,22 +33,25 @@ export class TrainingAnnotation {
     snapshot: Awaited<ReturnType<AnnotationRepository["read"]>>,
     calculated: number[],
   ) {
-    this.beatOneFrame = take.origin * source.sampleRate - take.audio.startFrame;
-    const bar = trainingBarFrames(source.sampleRate, take.settings.bpm, this.beatOneFrame, index);
+    this.initialBeatOneFrame = take.origin * source.sampleRate - take.audio.startFrame;
+    const bar = trainingBarFrames(source.sampleRate, take.settings.bpm, this.initialBeatOneFrame, index);
     this.existing = new Map(snapshot.dataset.manifest.examples.map((e) => [e.id, e]));
     const old = this.existing.get(trainingExampleId(source.checksum, bar));
+    this.savedId = old?.id ?? null;
     this.draft = old
       ? {
           bpm: old.reference.bpm,
+          beatOneFrame: old.reference.beatOneFrame,
           desired: [...old.desiredFrames],
           uncertain: structuredClone(old.uncertain),
         }
       : {
           bpm: take.settings.bpm,
+          beatOneFrame: this.initialBeatOneFrame,
           desired: [...new Set(calculated)].sort((a, b) => a - b),
           uncertain: [],
         };
-    this.baseline = old ? JSON.stringify(this.draft) : "";
+    this.baseline = JSON.stringify(this.draft);
     this.fingerprint = snapshot.fingerprint;
   }
   static async open(
@@ -70,7 +76,7 @@ export class TrainingAnnotation {
     const source =
       snapshot.dataset.manifest.sources.find((s) => s.checksum === pcm.source.checksum) ??
       pcm.source;
-    return new TrainingAnnotation(
+    const session = new TrainingAnnotation(
       take,
       index,
       source,
@@ -79,6 +85,58 @@ export class TrainingAnnotation {
       snapshot,
       calculated,
     );
+    if (typeof sessionStorage !== "undefined") {
+      try {
+        const saved = JSON.parse(sessionStorage.getItem(session.draftKey) || "null");
+        if (saved && saved.draft) {
+          const previous = session.draft;
+          session.draft = { ...saved.draft, beatOneFrame: saved.draft.beatOneFrame ?? session.initialBeatOneFrame };
+          try {
+            trainingBarFrames(source.sampleRate, session.draft.bpm, session.beatOneFrame, index);
+            validateTrainingManifest({
+              format: "forgettime-training",
+              schemaVersion: 1,
+              sources: [source],
+              groups: [
+                { id: "draft", assignment: "unassigned", sourceChecksums: [source.checksum] },
+              ],
+              examples: [session.example()],
+            });
+            session.restoredDraft = true;
+          } catch {
+            session.draft = previous;
+          }
+        }
+      } catch {
+        /* An unreadable draft never replaces authoritative annotations. */
+      }
+    }
+    return session;
+  }
+  private get draftKey() {
+    return `forgettime-annotation-draft:${this.source.checksum}:${this.initialBeatOneFrame}:${this.index}`;
+  }
+  saveDraft() {
+    sessionStorage.setItem(
+      this.draftKey,
+      JSON.stringify({ fingerprint: this.fingerprint, draft: this.draft }),
+    );
+  }
+  discardDraft() {
+    try {
+      sessionStorage.removeItem(this.draftKey);
+    } catch {
+      /* No draft stored. */
+    }
+  }
+
+  get beatOneFrame() { return this.draft.beatOneFrame; }
+  setBeatOne(frame: number) {
+    if (!Number.isSafeInteger(frame) || frame < 0 || frame >= this.source.frames)
+      throw new Error("Place beat one inside the source audio.");
+    const bar = trainingBarFrames(this.source.sampleRate, this.draft.bpm, frame, this.index);
+    if (bar.startFrame >= this.source.frames) throw new Error("Beat one puts this bar outside the audio.");
+    this.edit({ ...this.draft, beatOneFrame: frame });
   }
   get bar() {
     return trainingBarFrames(this.source.sampleRate, this.draft.bpm, this.beatOneFrame, this.index);
@@ -94,6 +152,24 @@ export class TrainingAnnotation {
   }
   get overwrite() {
     return this.existing.has(this.example().id);
+  }
+  get savedExampleId() {
+    const current = this.example().id;
+    return this.existing.has(current) ? current : this.savedId;
+  }
+  async exclude() {
+    const id = this.savedExampleId;
+    if (!id) throw new Error("This bar has not been saved to training.");
+    const fingerprint = await this.repository.deleteExample(id, this.fingerprint, true);
+    this.fingerprint = fingerprint;
+    this.existing.delete(id);
+    if (this.savedId === id) this.savedId = null;
+    this.baseline = JSON.stringify(this.draft);
+    this.discardDraft();
+  }
+  isBarIncluded(index: number) {
+    const bar = trainingBarFrames(this.source.sampleRate, this.draft.bpm, this.beatOneFrame, index);
+    return this.existing.has(trainingExampleId(this.source.checksum, bar));
   }
   private edit(next: Draft) {
     if (JSON.stringify(next) === JSON.stringify(this.draft)) return;
@@ -211,7 +287,9 @@ export class TrainingAnnotation {
     }
     this.fingerprint = fingerprint;
     this.existing.set(example.id, example);
+    this.savedId = example.id;
     this.baseline = JSON.stringify(this.draft);
+    this.discardDraft();
     return example;
   }
 }

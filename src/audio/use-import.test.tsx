@@ -134,3 +134,72 @@ it.each(['{not-json', '{"format":"forgettime-bar","schemaVersion":2}'])('offers 
   expect(hook.result.current.importState).toMatchObject({ kind: 'fallback', explanation: expect.stringContaining('Unsupported or invalid') })
   expect(hook.result.current.recordedTake).toBeNull()
 })
+
+
+it.each([
+  ['Splice_drums_091_loop.wav', 91],
+  ['loop_50bpm.wav', 50],
+  ['loop_300.wav', 300],
+  ['loop_91.5_bpm.wav', 91.5],
+  ['loop_44100_120.wav', 120],
+  ['loop_49_301_44100.wav', 110],
+  ['drums.wav', 110],
+])('prefills tempo from %s while requiring confirmation', async (name, bpm) => {
+  const hook = renderHook(() => usePractice(110, 'straight'));
+  await act(() => hook.result.current.importFiles([file(name, encodeFloatWav(new Float32Array(8000), 8000))]));
+  expect(hook.result.current.importState).toMatchObject({ kind: 'setup', bpm });
+  expect(hook.result.current.recordedTake).toBeNull();
+  await act(() => hook.result.current.confirmImport(95, 0));
+  expect(hook.result.current.recordedTake?.settings.bpm).toBe(95);
+});
+
+it('loads a training sample directly at source zero with filename tempo and no confirmation setup', async () => {
+  const hook = renderHook(() => usePractice(110, 'straight'));
+  await act(() => hook.result.current.importFiles([file('splice_91_drums.wav', encodeFloatWav(new Float32Array(24000), 8000))], true));
+  expect(hook.result.current.importState).toBeNull();
+  expect(hook.result.current.recordedTake).toMatchObject({ source: 'imported', origin: 0, settings: { bpm: 91 } });
+  expect(hook.result.current.reviewBarIndex).toBe(0);
+  expect(hardware.capture).not.toHaveBeenCalled();
+});
+
+it('retains a batch for annotation and skips duplicates from later imports', async () => {
+  const hook = renderHook(() => usePractice(110, 'straight'));
+  const a = encodeFloatWav(Float32Array.of(.1, .2), 8000), b = encodeFloatWav(Float32Array.of(.3, .4), 8000);
+  await act(() => hook.result.current.importFiles([file('first_91.wav', a), file('second_120.wav', b), file('copy.wav', a)], true));
+  expect(hook.result.current.trainingSamples.map(sample => sample.name)).toEqual(['first_91.wav', 'second_120.wav']);
+  expect(hook.result.current.trainingImportReport.duplicates).toEqual(['copy.wav']);
+  const take = hook.result.current.recordedTake;
+  await act(() => hook.result.current.importFiles([file('renamed.wav', b)], true));
+  expect(hook.result.current.recordedTake).toBe(take);
+  expect(hook.result.current.trainingSamples).toHaveLength(2);
+  expect(hook.result.current.trainingImportReport.duplicates).toEqual(['renamed.wav']);
+  expect(hook.result.current.importNotice).toBeNull();
+});
+
+it('restores imported, unannotated files from the catalog after remounting with the microphone off', async () => {
+  let saved: import('./training-import').PendingTrainingSample[] = [];
+  const catalog = {
+    read: vi.fn(async () => structuredClone(saved)),
+    add: vi.fn(async (samples: import('./training-import').PendingTrainingSample[]) => { saved = [...saved, ...structuredClone(samples)]; return structuredClone(saved); }),
+  };
+  const options = { trainingSamples: catalog, latestPerformance: null };
+  const first = renderHook(() => usePractice(110, 'straight', 1, undefined, options));
+  await act(() => first.result.current.importFiles([file('one.wav', encodeFloatWav(Float32Array.of(.1), 8000)), file('two.wav', encodeFloatWav(Float32Array.of(.2), 8000))], true));
+  expect(catalog.add).toHaveBeenCalledOnce();
+  first.unmount();
+  const reopened = renderHook(() => usePractice(110, 'straight', 1, undefined, options));
+  await act(async () => {});
+  expect(reopened.result.current.trainingSamples.map(sample => sample.name)).toEqual(['one.wav', 'two.wav']);
+  expect(reopened.result.current.source).toBe('off');
+  expect(reopened.result.current.recordedTake).toBeNull();
+  expect(hardware.capture).not.toHaveBeenCalled();
+});
+
+it('reports catalog write failures without pretending the new sample was imported', async () => {
+  const catalog = { read: async () => [], add: async () => { throw new Error('Quota exceeded'); } };
+  const hook = renderHook(() => usePractice(110, 'straight', 1, undefined, { trainingSamples: catalog, latestPerformance: null }));
+  await act(() => hook.result.current.importFiles([file('one.wav', encodeFloatWav(Float32Array.of(.1), 8000))], true));
+  expect(hook.result.current.trainingSamples).toEqual([]);
+  expect(hook.result.current.recordedTake).toBeNull();
+  expect(hook.result.current.importError).toBe('Quota exceeded');
+});

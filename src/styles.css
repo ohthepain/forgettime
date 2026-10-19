@@ -135,23 +135,9 @@
 .import-sensitivity > button { display: inline-flex; align-items: center; gap: 6px; }
 .import-sensitivity .record-popover { right: 0; left: auto; top: calc(100% + 5px); max-width: calc(100vw - 70px); }
 .import-sensitivity input { width: 100%; }
-.import-setup .import-overview { height: 40px; cursor: grab; }
-.import-view-controls { display: flex; flex-wrap: wrap; }
-.import-view-controls button { font-size: 11px; }
-.import-detection-marker { vector-effect: non-scaling-stroke; }
 
-.import-setup .import-detail-plot, .import-setup .import-overview { border-radius: 0; }
-.import-setup .import-overview { outline: 1px solid #46554a; outline-offset: -1px; }
-.import-setup .import-overview:focus { outline: 1px solid #68756c; }
 
-.import-detail { position: relative; }
-.import-setup .import-detail-plot { display: block; }
-.audio-import .import-marker-play { position: absolute; top: calc(100% - 24px); z-index: 2; display: grid; place-items: center; width: 24px; height: 24px; min-height: 0; padding: 0; margin: 0; border: 0; border-radius: 0; background: #ffe3a3; color: #151a20; cursor: pointer; }
-.audio-import .import-marker-play:hover, .audio-import .import-marker-play:focus-visible { background: #fff1c9; outline: 1px solid #fff1c9; }
-.audio-import .import-marker-play svg { width: 14px; height: 14px; background: transparent; border-radius: 0; fill: currentColor; pointer-events: none; }
-.import-preview-status { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; }
 
-.import-overview-selected-trace { fill: none; stroke: #ffe08a; stroke-width: 1; opacity: 1; }
 
 
 /* One top row for capture, metronome settings and the fixed practice tempo. */
@@ -233,21 +219,6 @@
   gap: 0.4rem;
   font-size: 0.8rem;
 }
-.training-waveform {
-  display: block;
-  width: 100%;
-  height: 180px;
-  background: #101819;
-  border: 1px solid #52635d;
-  overflow: hidden;
-}
-.training-waveform [role="button"] {
-  cursor: pointer;
-}
-.training-waveform [role="button"]:focus line {
-  stroke: white;
-  stroke-width: 4;
-}
 .training-attacks {
   display: flex;
   flex-wrap: wrap;
@@ -265,3 +236,78 @@
 .training-editor [role="alert"] {
   color: #ffb8a6;
 }
+
+
+.training-editor .training-exit-dialog { position: fixed; inset: 0; margin: auto; width: calc(100% - 40px); max-width: 410px; max-height: 85dvh; overflow: auto; border: 1px solid #52635d; border-radius: 18px; padding: 24px; background: #17251e; color: #edf8f1; box-shadow: 0 18px 60px #0008; }
+.training-exit-dialog::backdrop { background: #000b; backdrop-filter: blur(4px); }
+.training-exit-dialog button { margin: 8px 8px 0 0; }
+
+
+/* Shared source-audio display: import and annotation use the same gestures and output controls. */
+.waveform-detail { position: relative; }
+.waveform-display .waveform-detail-plot { display: block; width: 100%; height: 180px; border: 1px solid #52635d; background: #101819; border-radius: 0; overflow: hidden; touch-action: none; }
+.waveform-detail-plot [role="button"] { cursor: pointer; }
+.waveform-detail-plot [role="button"]:focus line { stroke: white; stroke-width: 2; }
+.waveform-display .waveform-overview { display: block; width: 100%; height: 40px; border-radius: 0; background: #10161e; outline: 1px solid #46554a; outline-offset: -1px; cursor: grab; touch-action: none; }
+.waveform-overview:focus-visible, .waveform-detail-plot:focus-visible { outline: 2px solid #83e3ae; outline-offset: -2px; }
+.waveform-display .waveform-marker-play { position: absolute; top: calc(100% - 24px); z-index: 2; display: grid; place-items: center; width: 24px; height: 24px; min-height: 0; padding: 0; margin: 0; border: 0; border-radius: 0; background: #ffe3a3; color: #151a20; cursor: pointer; }
+.waveform-display .waveform-marker-play:hover, .waveform-display .waveform-marker-play:focus-visible { background: #fff1c9; outline: 1px solid #fff1c9; }
+.waveform-display .waveform-marker-play svg { width: 14px; height: 14px; background: transparent; border-radius: 0; fill: currentColor; pointer-events: none; }
+.waveform-overview-selected-trace { fill: none; stroke: #ffe08a; stroke-width: 1; }
+.waveform-detection-marker { vector-effect: non-scaling-stroke; }
+.waveform-view-readout { font-size: 11px; color: #91a2ac; }
+
+.waveform-overview-container { position: relative; }
+.waveform-bar-label { position: absolute; top: 3px; padding: 2px 7px; border-radius: 999px; color: #fff; background: #8d3b3b; font: 10px/1.25 ui-monospace, monospace; pointer-events: none; white-space: nowrap; }
+
+/* Recorded-bar review: roomier actions and import guidance. */
+.annotation-launch{width:192px;max-width:100%;min-height:34px;padding:5px 4px}
+.audio-import .import-instructions{width:100%;max-width:461px;min-height:65px}
+
+.training-link{align-self:center;padding:8px;color:var(--accent);font-size:12px;text-decoration:none}
+.training-page{max-width:1000px}.training-page .app-header{gap:16px}.training-page h1{font-size:26px}
+.training-tabs{display:flex;gap:8px;margin:20px 0}.training-tabs button,.training-page button{border:1px solid #3c4b54;border-radius:8px;background:#202a32;color:#d4e0e4;padding:8px 12px}.training-tabs [aria-selected=true],.training-example-list [aria-pressed=true]{border-color:var(--accent);background:#2b4243}
+.training-page label{display:block;margin:12px 0}.training-page input,.training-page select{max-width:100%;padding:8px;background:#18232b;color:#e6edef;border:1px solid #43545e;border-radius:6px}.training-page pre{white-space:pre-wrap;overflow-wrap:anywhere}.training-example-list{padding:0;list-style:none;max-height:240px;overflow:auto}.training-example-list li{margin:6px 0}.training-example-list button{width:100%;text-align:left;overflow-wrap:anywhere}.training-comparison,.training-empty{margin:20px 0;padding:16px;border:1px solid #34424c;border-radius:12px}.training-page [hidden]{display:none!important}
+.training-import-panel{margin:20px 0;padding:16px;border:1px solid #34424c;border-radius:12px}.training-import-panel h2{font-size:18px;margin:0 0 12px}
+.training-page .annotation-launch{padding:5px 4px;min-height:34px}
+
+.waveform-display .waveform-marker-delete { top: 0; background: #f29a9a; }
+.waveform-display .waveform-marker-delete:hover, .waveform-display .waveform-marker-delete:focus-visible { background: #ffc0b8; outline-color: #ffc0b8; }
+
+.waveform-display button.waveform-bar-label { pointer-events: auto; min-height: 0; margin: 0; padding: 2px 7px; border: 0; border-radius: 999px; background: #8d3b3b; color: #fff; z-index: 3; cursor: pointer; }
+.waveform-display button.waveform-bar-label:hover, .waveform-display button.waveform-bar-label:focus-visible { background: #a14d4d; outline: 2px solid #f0aaaa; }
+
+.training-file-list-heading, .training-file-heading { display: flex; align-items: center; gap: 10px; margin: 16px 0 10px; }
+.training-file-list-heading h2, .training-file-heading h2 { margin: 0; min-width: 0; overflow-wrap: anywhere; font-size: 16px; }
+.training-file-list-heading button, .training-file-heading button { display: grid; place-items: center; flex-shrink: 0; width: 34px; height: 34px; padding: 0; border: 1px solid #50635c; border-radius: 8px; background: #24342f; color: #dfebe4; cursor: pointer; }
+.training-file-list-heading button { margin-left: auto; }
+.training-included { color: #74cf9a; flex-shrink: 0; }
+.training-new-pill { border-radius: 999px; padding: 3px 8px; background: #35444d; color: #e2e9ed; font-size: 11px; }
+
+.waveform-attack-adjust { position: absolute; top: 50%; transform: translate(-50%, -50%); display: flex; z-index: 4; }
+.waveform-display .waveform-attack-adjust button { width: 22px; height: 24px; min-height: 0; padding: 0; margin: 0; border: 1px solid #596e63; border-radius: 3px; background: #b4dec0; color: #122019; line-height: 1; }
+.waveform-display .waveform-attack-adjust .waveform-attack-drag { width: 16px; cursor: ew-resize; touch-action: none; }
+
+.waveform-display .waveform-bar-label[data-included="true"] { background: #287347; }
+.waveform-display .waveform-bar-label[data-included="true"]:hover, .waveform-display .waveform-bar-label[data-included="true"]:focus-visible { background: #368c58; outline-color: #9be7b4; }
+
+.training-example-list button .training-included { margin-left: auto; vertical-align: middle; }
+
+.training-example-list button { display: flex; align-items: center; gap: 8px; }
+
+.waveform-current-bar-trace { fill: none; stroke: #edfff0; stroke-width: 1; stroke-linecap: round; opacity: 1; }
+
+.training-duplicate-dialog { width: min(480px, calc(100vw - 32px)); max-height: 75vh; overflow: auto; padding: 24px; border: 1px solid #50635c; border-radius: 14px; background: #1b2724; color: #e2ece8; }
+.training-duplicate-dialog::backdrop { background: #0009; }
+.training-duplicate-dialog li { overflow-wrap: anywhere; margin: 6px 0; }
+
+.waveform-outcome-pill { position: absolute; top: 3px; z-index: 4; transform: translateX(-50%); min-width: 22px; height: 19px; padding: 1px 5px; border-radius: 999px; text-align: center; font: bold 12px/17px ui-monospace, monospace; background: #b63746; color: #fff; pointer-events: none; }
+.waveform-outcome-correct { background: #287347; }
+
+.training-comparison-heading { flex-wrap: wrap; }
+.training-comparison-heading > .training-included { flex-shrink: 0; }
+.training-bar-selector { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.training-file-heading .training-bar-selector button { width: 26px; height: 34px; }
+.training-file-heading .training-file-remove { margin-left: auto; }
+
+.waveform-beat-label { position: absolute; top: 3px; transform: translateX(3px); padding: 2px 5px; border-radius: 999px; background: #284c3d; color: #fff; font: 10px/1.25 ui-monospace, monospace; white-space: nowrap; pointer-events: none; }

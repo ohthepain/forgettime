@@ -13,7 +13,7 @@ import {
   type TrainingEvaluationPlan,
 } from "./training-scoring";
 
-export const OPTIMIZER_VERSION = "seeded-grid-v1";
+export const OPTIMIZER_VERSION = "seeded-grid-v2";
 declare const __TRAINING_OPTIMIZER_BUILD__: string;
 export const OPTIMIZER_BUILD =
   typeof __TRAINING_OPTIMIZER_BUILD__ === "undefined" ? "unbundled" : __TRAINING_OPTIMIZER_BUILD__;
@@ -104,7 +104,7 @@ export const optimizerRunSchema = z.strictObject({
   format: z.literal("forgettime-optimizer-run"),
   schemaVersion: z.literal(1),
   id: z.string().uuid(),
-  version: z.literal(OPTIMIZER_VERSION),
+  version: z.enum(["seeded-grid-v1", "seeded-grid-v2"]),
   build: z.string().regex(/^[a-f0-9]{64}$/),
   scoring: z.literal(TRAINING_SCORING_VERSION),
   envelope: z.literal(ENVELOPE_VERSION),
@@ -403,9 +403,9 @@ export async function optimizeTraining(
               : "refine";
       let p =
         i === 0
-          ? baselineParameters(options.family)
+          ? options.starting ?? baselineParameters(options.family)
           : phase === "starting"
-            ? options.starting!
+            ? baselineParameters(options.family)
             : sample(
                 options.family,
                 rng,

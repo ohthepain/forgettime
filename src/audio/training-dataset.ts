@@ -167,6 +167,16 @@ export function createTrainingRepository(store: TrainingStore) {
       dataset.manifest.examples = dataset.manifest.examples.filter((e) => e.id !== id);
       return commit(token, prune(dataset));
     },
+    async deleteSource(checksum: string, expectedFingerprint: string, confirmed: boolean) {
+      if (!confirmed) throw new Error("Deletion requires explicit confirmation");
+      const { token, dataset } = await load();
+      if ((await trainingFingerprint(dataset.manifest)) !== expectedFingerprint)
+        throw new Error("Training dataset changed; review again");
+      if (!dataset.manifest.sources.some(source => source.checksum === checksum))
+        throw new Error("Training source missing");
+      dataset.manifest.examples = dataset.manifest.examples.filter(example => example.sourceChecksum !== checksum);
+      return commit(token, prune(dataset));
+    },
     async exportFile() {
       return encodeTrainingTransfer((await load()).dataset);
     },

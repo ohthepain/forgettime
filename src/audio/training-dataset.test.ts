@@ -261,3 +261,26 @@ describe("local training repository", () => {
   });
 });
 // Deliberately no UI/native-device evidence: these tests exercise real service and portable codecs against an atomic storage seam.
+
+it("removes all bars for one source atomically while retaining other training files", async () => {
+  const store = memoryStore(), repository = createTrainingRepository(store);
+  const first = await fixture(0), second = await fixture(.75);
+  const extraBar = { startFrame: 16000, endFrame: 32000 };
+  await repository.add(first);
+  const anotherBar = structuredClone(first);
+  anotherBar.manifest.examples = [{ ...first.manifest.examples[0], id: trainingExampleId(first.manifest.sources[0].checksum, extraBar), bar: extraBar, desiredFrames: [18000] }];
+  await repository.add(anotherBar);
+  second.manifest.groups[0].id = 'other-group';
+  await repository.add(second);
+  const before = await repository.read();
+  const checksum = first.manifest.sources[0].checksum;
+  await expect(repository.deleteSource(checksum, before.fingerprint, false)).rejects.toThrow('confirmation');
+  store.fail();
+  await expect(repository.deleteSource(checksum, before.fingerprint, true)).rejects.toThrow('QuotaExceededError');
+  expect((await repository.read()).dataset.manifest.examples).toHaveLength(3);
+  await repository.deleteSource(checksum, before.fingerprint, true);
+  const after = await repository.read();
+  expect(after.dataset.manifest.examples).toHaveLength(1);
+  expect(after.dataset.manifest.sources.map(source => source.checksum)).toEqual([second.manifest.sources[0].checksum]);
+  expect(Object.keys(after.dataset.audio)).toEqual([second.manifest.sources[0].checksum]);
+});

@@ -29,9 +29,12 @@ export function BarWaveform({ waveform, source, status, review, comparison, diag
     : !waveform.available ? 'Waveform unavailable · update the mobile app'
     : null
   return <section className="bar-waveform" aria-label="One-bar audio waveform">
-    {(review || held || source !== 'off') && <div className="waveform-heading">{(review || held) && <span className="small-label">{review ? waveform.review === 'complete' ? 'RECORDED BAR' : 'PARTIAL BAR' : held ? waveform.review === 'complete' ? 'LAST PLAYED BAR' : 'PARTIAL BAR' : null}</span>}<span className={source === 'simulation' ? 'demo-label' : ''}>{source === 'replay' ? 'REPLAY · MIC OFF' : review ? 'RECORDED AUDIO' : source === 'simulation' ? held ? 'SIMULATION · HELD' : 'SIMULATED AUDIO' : held ? 'HELD FOR REVIEW' : source === 'microphone' ? 'LIVE AUDIO' : 'WAVEFORM'}</span></div>}
+    {(!review || waveform.review === 'partial' || source === 'replay') && (review || held || source !== 'off') && <div className="waveform-heading">
+      {(review ? waveform.review === 'partial' : held) && <span className="small-label">{waveform.review === 'complete' ? 'LAST PLAYED BAR' : 'PARTIAL BAR'}</span>}
+      {(!review || source === 'replay') && <span className={source === 'simulation' ? 'demo-label' : ''}>{source === 'replay' ? 'REPLAY · MIC OFF' : source === 'simulation' ? held ? 'SIMULATION · HELD' : 'SIMULATED AUDIO' : held ? 'HELD FOR REVIEW' : source === 'microphone' ? 'LIVE AUDIO' : 'WAVEFORM'}</span>}
+    </div>}
     <div className="waveform-display">
-      {review && <div className="waveform-review-controls" role="group" aria-label="Recorded bar navigation">
+      {review && <div data-testid="recorded-bar-navigation" className="waveform-review-controls" role="group" aria-label="Recorded bar navigation">
         <button aria-label="Previous bar" disabled={review.index === 0} onClick={review.previous}><ChevronLeft size={18} /></button>
         <button aria-label={`Review bar ${review.index + 1} of ${review.count}`} onClick={review.select}>Bar {review.index + 1} / {review.count}</button>
         {review.loop && <button aria-label={source === 'replay' ? 'Pause recorded bar' : 'Loop recorded bar'} disabled={!review.canLoop} onClick={review.loop}>{source === 'replay' ? <Pause size={18} /> : <Play size={18} />}</button>}
@@ -59,7 +62,6 @@ export function BarWaveform({ waveform, source, status, review, comparison, diag
     </div>
     {comparison && <div className="mode-control replay-comparison" role="group" aria-label="Waveform detection comparison"><button aria-pressed={!comparison.current} onClick={() => comparison.select(false)}>Original capture</button><button aria-pressed={comparison.current} onClick={() => comparison.select(true)}>Current loop</button></div>}
     <div className="waveform-legend" aria-label="Detected hit strength from soft to hard">{HIT_STRENGTH_COLORS.map(band => <span key={band.label}><i style={{ background: band.color }} aria-hidden="true" />{band.label}</span>)}</div>
-    <p className="waveform-note">Detected hits · colour shows input strength</p>
     {review?.interrupted && <p className="waveform-note">Input interrupted · this take ends before the gap.</p>}
     {review && <p className="waveform-note">{!comparison?.current && review.originalAvailable === false ? 'Original detections unavailable' : `${waveform.hits.length} ${comparison?.current ? 'current-loop' : 'original'} detected hits`} · {waveform.review === 'partial' ? 'partial recorded bar' : 'complete recorded bar'}. {review.availableFraction < 1 ? 'Shaded area was not recorded. Looping needs a complete bar.' : ''}</p>}
     {held && !review && <p className="waveform-note">{waveform.review === 'complete' ? `${waveform.hits.length} detected hits · last complete bar before your final hit.` : 'Short take · play through a full bar for a complete review.'}</p>}

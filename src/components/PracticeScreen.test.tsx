@@ -1,5 +1,6 @@
+import { trainingNavigation } from '../lib/training-session'
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { webcrypto } from 'node:crypto'
 import { importedMaterial } from '../audio/audio-import'
@@ -15,10 +16,12 @@ import { emptyWaveform } from '../audio/bar-waveform'
 
 vi.mock('../audio/use-practice', () => ({ usePractice: vi.fn() }))
 vi.mock('./AccountDialog', () => ({ AccountDialog: () => null }))
-afterEach(() => cleanup())
+beforeEach(() => { if (!document.getElementById('training-import-panel')) { const host = document.createElement('section'); host.id = 'training-import-panel'; document.body.append(host) } })
+afterEach(() => { cleanup(); document.querySelectorAll('#training-import-panel').forEach(el => el.remove()) })
 
 function practice(): ReturnType<typeof usePractice> {
   return {
+    trainingSamples: [], trainingImportReport: { duplicates: [], errors: [] },
     gainAdjustment: { adjusting: false, limited: false, take: 0 }, manualInputGain: vi.fn(), frequencyBalance: 100, configureBalance: vi.fn(), importState: null, importBusy: false, importError: null, importNotice: null, nativeImportPicker: false,
     beginImport: vi.fn(), cancelImport: vi.fn(), importFiles: vi.fn(), chooseImportFiles: vi.fn(), useImportAudioOnly: vi.fn(), confirmImport: vi.fn(),
     savedBars: [], savedBarsSupported: true, libraryBusy: false, libraryError: null, libraryNotice: null,
@@ -44,15 +47,16 @@ describe('practice screen integration', () => {
     state = practice()
     vi.mocked(usePractice).mockImplementation(() => state)
   })
-  afterEach(() => cleanup())
 
   it('routes picker and drop to the same import action and makes beat one keyboard accessible', () => {
     const { rerender } = render(<PracticeScreen />)
+    expect(within(screen.getByRole('main')).queryByRole('button', { name: 'Import audio' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Import audio' })).toBeNull()
     const file = new File(['audio'], 'drums.wav', { type: 'audio/wav' })
-    fireEvent.click(screen.getByRole('button', { name: 'Import audio' }))
+    act(() => trainingNavigation.importAudio?.())
     expect(state.beginImport).toHaveBeenCalledOnce()
     fireEvent.change(screen.getByLabelText('Choose audio and optional .forget files'), { target: { files: [file] } })
-    expect(state.importFiles).toHaveBeenCalledWith([expect.objectContaining({ name: 'drums.wav', size: 5 })])
+    expect(state.importFiles).toHaveBeenCalledWith([expect.objectContaining({ name: 'drums.wav', size: 5 })], true)
     fireEvent.drop(screen.getByRole('region', { name: 'Import audio files' }), { dataTransfer: { files: [file] } })
     expect(state.importFiles).toHaveBeenCalledTimes(2)
     state = { ...state, importState: { kind: 'setup', file: { name: 'drums.wav', size: 5, read: async () => new ArrayBuffer(5) }, bpm: 110, explanation: 'Confirm reference', audio: { samples: new Float32Array(48000), sampleRate: 48000, channels: 1 } } }
@@ -62,6 +66,26 @@ describe('practice screen integration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirm tempo and beat one' }))
     expect(state.confirmImport).toHaveBeenCalledWith(110, .3 + 1 / 48000)
     expect((screen.getByRole('button', { name: 'Enable microphone' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('keeps the confirmed imported waveform in Training when Practice is hidden', () => {
+    const take: RecordedTake = { source: 'imported', continuity: 0, origin: 0, settings: { bpm: 91, mode: 'auto', startSensitivity: 50 }, audio: { startFrame: 0, sampleRate: 8000, samples: new Float32Array(24000).fill(.2) }, onsets: [], results: [], endReason: 'stopped', barCount: 2 }
+    state = { ...state, importState: { kind: 'setup', file: { name: 'drums.wav', size: 48000, read: async () => new ArrayBuffer(48000) }, bpm: 91, explanation: 'Confirm reference', audio: { samples: take.audio.samples, sampleRate: 8000, channels: 1 } } }
+    const { rerender } = render(<div hidden><PracticeScreen active={false} /></div>)
+    const training = within(document.getElementById('training-import-panel')!)
+    expect(training.getByRole('slider', { name: 'Beat one position' })).toBeDefined()
+    fireEvent.click(training.getByRole('button', { name: 'Confirm tempo and beat one' }))
+    expect(state.confirmImport).toHaveBeenCalledWith(91, 0)
+    state = { ...state, importState: null, recordedTake: take, reviewBar: recordedBar(take, 0), reviewBarCount: 2 }
+    rerender(<div hidden><PracticeScreen active={false} /></div>)
+    expect(training.getByRole('region', { name: 'One-bar audio waveform' })).toBeDefined()
+    fireEvent.click(training.getByRole('button', { name: 'Next bar' }))
+    expect(state.nextBar).toHaveBeenCalledOnce()
+    fireEvent.click(training.getByRole('button', { name: 'Loop recorded bar' }))
+    expect(state.playBar).toHaveBeenCalledOnce()
+    rerender(<div><PracticeScreen active /></div>)
+    expect(training.queryByRole('region', { name: 'One-bar audio waveform' })).toBeNull()
+    expect(screen.getAllByRole('region', { name: 'One-bar audio waveform' })).toHaveLength(1)
   })
 
   it('offers durable local save and separate WAV and metadata downloads', () => {
@@ -121,7 +145,7 @@ describe('practice screen integration', () => {
     expect((screen.getByRole('spinbutton') as HTMLInputElement).disabled).toBe(true)
     state = { ...state, source: 'microphone', captureInfo: { source: 'native', sampleRate: 48000, timestampQuality: 'hardware' } }
     rerender(<PracticeScreen />)
-    expect(screen.getByText('Native microphone · live audio')).toBeDefined()
+    expect(screen.getByText('Native microphone · live audio · Default detector')).toBeDefined()
     expect(screen.queryByText('Generated hits · microphone is off')).toBeNull()
   })
 
@@ -136,7 +160,7 @@ describe('practice screen integration', () => {
     state = { ...state, source: 'microphone', deviceId: 'mac', captureInfo: { source: 'web', sampleRate: 48000, timestampQuality: 'sample-clock', inputLabel: 'MacBook Microphone' } }
     rerender(<PracticeScreen />)
     expect(selector.disabled).toBe(true)
-    expect(screen.getByText('MacBook Microphone · live audio')).toBeDefined()
+    expect(screen.getByText('MacBook Microphone · live audio · Default detector')).toBeDefined()
     expect(screen.queryByText(/reports sound processing/)).toBeNull()
     state = { ...state, captureInfo: { ...state.captureInfo!, processing: { autoGainControl: true } } }
     rerender(<PracticeScreen />)
@@ -348,4 +372,19 @@ it("stops capture before annotation and blocks source replacement while the edit
     (screen.getByRole("button", { name: "Enable microphone" }) as HTMLButtonElement).disabled,
   ).toBe(true);
   vi.unstubAllGlobals();
+});
+
+
+it('opens annotation automatically when a training file finishes loading', async () => {
+  state = practice();
+  vi.mocked(usePractice).mockImplementation(() => state);
+  const view = render(<div hidden><PracticeScreen active={false} /></div>);
+  act(() => trainingNavigation.importAudio?.());
+  const take: RecordedTake = { source: 'imported', continuity: 0, origin: 0, settings: { bpm: 91, mode: 'auto', startSensitivity: 50 }, audio: { startFrame: 0, sampleRate: 8000, samples: new Float32Array(24000) }, onsets: [], results: [], endReason: 'stopped' };
+  state = { ...state, recordedTake: take, reviewBar: recordedBar(take, 0), reviewBarCount: 2 };
+  view.rerender(<div hidden><PracticeScreen active={false} /></div>);
+  await screen.findByRole('region', { name: 'Training annotation' });
+  expect(screen.queryByRole('button', { name: 'Confirm tempo and beat one' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Annotate training attacks' })).toBeNull();
+  expect(state.listen).not.toHaveBeenCalled();
 });

@@ -394,3 +394,28 @@ it('passes initial gain to a native plugin that advertises support', async () =>
   expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ inputGain: 1.05 }))
   await capture.stop()
 })
+
+it.each(['current', 'mel'] as const)('runs the selected %s profile on both browser and native PCM, ignoring native default hits', async family => {
+  const { baselineParameters } = await import('../../../src/audio/training-optimizer');
+  const profile = baselineParameters(family);
+  const rate = 48000, pcm = new Float32Array(rate);
+  for (const t of [0.2, 0.5, 0.8]) for (let i = 0; i < 2000; i++) pcm[Math.round(t * rate) + i] += 0.6 * Math.exp(-i / 576) * Math.sin(i * 2.73);
+  const web = webAudio();
+  const browserFrames: import('../../../src/audio/capture').CaptureFrame[] = [];
+  const browser = createAudioCapture({ onFrame: frame => browserFrames.push(frame) }, { profile });
+  await browser.start();
+  for (let i = 0; i < pcm.length; i += 997) web.emit({ type: 'samples', samples: pcm.subarray(i, i + 997), startFrame: i, sampleRate: rate });
+  await browser.stop();
+  mocks.native = true;
+  const nativeFrames: import('../../../src/audio/capture').CaptureFrame[] = [];
+  const native = createAudioCapture({ onFrame: frame => nativeFrames.push(frame) }, { profile });
+  const info = await native.start();
+  expect(info.analysis?.implementation).toBe(`selected-${family}`);
+  for (let i = 0; i < pcm.length; i += 997) mocks.callbacks.get('audioFrame')!({ sessionId: 'ios-1', time: 900, sampleRate: rate, level: 0, onsets: [{ time: 899, strength: 1, confidence: 1 }], pcm: { startFrame: i, samples: Array.from(pcm.subarray(i, i + 997)) } });
+  expect(nativeFrames.flatMap(frame => frame.onsets)).toEqual(browserFrames.flatMap(frame => frame.onsets));
+  expect(nativeFrames.flatMap(frame => frame.onsets).length).toBeGreaterThan(0);
+  expect(nativeFrames.map(frame => frame.time)).toEqual(browserFrames.map(frame => frame.time));
+  expect(nativeFrames[0].pcm?.samples).toEqual(pcm.subarray(0, 997));
+  expect(nativeFrames[0].analysis?.implementation).toBe(`selected-${family}`);
+  await native.stop();
+});

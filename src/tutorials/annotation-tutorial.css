@@ -1,0 +1,145 @@
+.annotation-tutorial {
+  max-width: 560px;
+  padding-bottom: 360px;
+}
+.annotation-tutorial h1 {
+  font-size: 1.5rem;
+}
+.tutorial-scope {
+  color: #83e3ae;
+}
+.tutorial-workspace {
+  margin-top: 1.5rem;
+  min-height: 100px;
+}
+.tutorial-workspace > button,
+.tutorial-panel button,
+.tutorial-reopen {
+  background: #244333;
+  color: #edf8f1;
+  border: 1px solid #699b80;
+  border-radius: 5px;
+  padding: 0.5rem 0.65rem;
+  min-height: 36px;
+  cursor: pointer;
+}
+.tutorial-panel {
+  position: fixed;
+  z-index: 1100;
+  right: 16px;
+  bottom: 16px;
+  width: min(320px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid #83e3ae;
+  border-radius: 10px;
+  background: #17231f;
+  box-shadow: 0 8px 36px #0009;
+  color: #edf8f1;
+  text-align: left;
+}
+.tutorial-panel[style] {
+  right: auto;
+  bottom: auto;
+}
+.tutorial-panel h2 {
+  font-size: 1rem;
+  margin: 12px 0;
+}
+.tutorial-panel p,
+.tutorial-panel li {
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+.tutorial-panel progress {
+  width: 100%;
+  height: 8px;
+  accent-color: #83e3ae;
+}
+.tutorial-controls {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 10px 0;
+}
+.tutorial-controls strong {
+  flex: 1;
+  font-size: 0.8rem;
+}
+.tutorial-panel button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.tutorial-panel button:focus-visible,
+.tutorial-workspace button:focus-visible,
+.tutorial-reopen:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+}
+.tutorial-panel textarea {
+  display: block;
+  width: 100%;
+  height: 180px;
+  color: #eff8f1;
+  background: #0c1511;
+}
+.tutorial-outcome {
+  color: #a1deb9;
+}
+.tutorial-highlight {
+  position: fixed;
+  pointer-events: none;
+  z-index: 1050;
+  border: 2px solid #83e3ae;
+  border-radius: 5px;
+  box-shadow: 0 0 0 4px #83e3ae22;
+}
+.tutorial-arrow {
+  position: fixed;
+  width: 48px;
+  height: 56px;
+  pointer-events: none;
+  z-index: 1060;
+  filter: drop-shadow(0 3px 4px #0008);
+  animation: tutorial-bounce 900ms ease-in-out infinite alternate;
+}
+@keyframes tutorial-bounce { to { transform: translateY(7px); } }
+@media (prefers-reduced-motion: reduce) { .tutorial-arrow { animation: none; } }
+.tutorial-drag-handle { cursor: grab; touch-action: none; user-select: none; }
+.tutorial-drag-handle:active { cursor: grabbing; }
+.tutorial-reopen {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 1100;
+}
+@media (max-width: 999px) {
+  .tutorial-panel {
+    max-height: 44vh;
+  }
+  .tutorial-workspace * {
+    scroll-margin-bottom: 48vh;
+    scroll-margin-top: 20px;
+  }
+}
+
+.tutorial-panel.is-docked {
+  max-height: 44vh;
+}
+
+.tutorial-panel > .tutorial-controls:last-child { position: sticky; bottom: -16px; padding: 8px 0; margin-bottom: 0; background: #17231f; border-top: 1px solid #496356; z-index: 2; }
+
+.annotation-tutorial { padding-bottom: 65vh; }
+.tutorial-panel { top: 16px; bottom: auto; }
+@media(max-width:1279px) { .tutorial-panel, .tutorial-panel[style] { left: 12px; right: auto;  max-height: 44vh; } }
+
+.tutorial-drag-handle { position: sticky; top: -16px; z-index: 3; background: #17231f; padding: 8px 0; margin-top: 0; }
+
+.tutorial-term { color: #ffd780; font-family: ui-monospace, monospace; font-size: .95em; background: #ffffff08; padding: 0 2px; }
+
+.splice-guide code{color:#ffdf99;font: .94em ui-monospace,monospace;background:#ffffff0a;border-radius:3px;padding:1px 3px}
+.splice-guide{max-height:calc(100dvh - 24px)}
+.splice-guide h2{font-size:18px;line-height:1.3}.splice-guide li{margin:3px 0}
+@media(max-width:600px){.splice-guide{max-height:48dvh}}

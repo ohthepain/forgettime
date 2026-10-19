@@ -66,3 +66,15 @@ it('reports output failures and rejects empty or invalid ranges without substitu
   await expect(pending).rejects.toThrow('Output unavailable')
   expect(contexts[0].close).toHaveBeenCalledOnce()
 })
+
+it('reports the playback frame from the audio clock and clears it on stop', async () => {
+  const contexts = outputEdge(), preview = new AudioRegionPreview();
+  expect(preview.currentFrame).toBeNull();
+  await preview.play(audio, .2, .8, vi.fn());
+  contexts[0].currentTime = 17.5;
+  expect(preview.currentFrame).toBeCloseTo(45);
+  contexts[0].currentTime = 20;
+  expect(preview.currentFrame).toBe(80);
+  preview.stop();
+  expect(preview.currentFrame).toBeNull();
+});

@@ -261,7 +261,7 @@ it("records an explicit starting configuration and rejects oversized or annotati
       },
     },
   );
-  expect(run.trials[1]).toMatchObject({ phase: "starting", parameters: starting });
+  expect(run.trials[0]).toMatchObject({ phase: "baseline", parameters: starting });
   expect(() => parseOptimizerRun(JSON.stringify({ ...run, desiredFrames: [123] }))).toThrow();
   const large = {
     ...run,

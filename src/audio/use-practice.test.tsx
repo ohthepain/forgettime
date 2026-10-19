@@ -497,3 +497,22 @@ describe('live timing integration', () => {
   })
 
 })
+
+it('snapshots the selected profile on explicit microphone start without enabling capture on restore', async () => {
+  const profile = { family: 'mel', windowMs: 20, bands: 96, neighbor: 5, confirmation: 1, rearming: true, threshold: 2 };
+  localStorage.setItem('forgettime-training-profile', JSON.stringify(profile));
+  mocked.create.mockReset();
+  mocked.create.mockImplementation(() => ({ start: vi.fn().mockResolvedValue(info), stop: vi.fn().mockResolvedValue(undefined), setMetronome: vi.fn() }));
+  vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  try {
+    const { result, unmount } = renderHook(() => usePractice(120, 'straight'));
+    expect(mocked.create).not.toHaveBeenCalled();
+    await act(() => result.current.listen());
+    expect(mocked.create.mock.calls[0][1].profile).toEqual(profile);
+    localStorage.removeItem('forgettime-training-profile');
+    expect(mocked.create.mock.calls[0][1].profile).toEqual(profile);
+    await act(() => result.current.stop());
+    unmount();
+  } finally { localStorage.removeItem('forgettime-training-profile'); cleanup(); vi.unstubAllGlobals(); }
+});
