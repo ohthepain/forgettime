@@ -236,3 +236,24 @@ it('renders finer detail labels and lines when zooming without changing overview
   expect(screen.getAllByRole('button', { name: 'Edit training bar 1' })).toHaveLength(1);
   expect(selectBar).not.toHaveBeenCalled();
 });
+
+it('switches only the detail background to mel while preserving grid, markers and viewport', () => {
+  const terminate = vi.fn(), postMessage = vi.fn();
+  vi.stubGlobal('Worker', class { terminate = terminate; postMessage = postMessage; });
+  const select = vi.fn();
+  const { container } = render(<WaveformDisplay audio={audio} scope="annotation" markers={markers} grid={{ bpm: 120, beatOneFrame: 0 }} selectedFrame={null} onSelect={select} />);
+  const overview = screen.getByRole('slider', { name: 'Visible annotation passage' });
+  fireEvent.keyDown(overview, { key: '+' });
+  const position = overview.getAttribute('aria-valuenow');
+  const labels = container.querySelectorAll('.waveform-beat-label').length;
+  fireEvent.click(screen.getByRole('button', { name: 'Spectrum' }));
+  expect(screen.getByRole('button', { name: 'Spectrum' }).getAttribute('aria-pressed')).toBe('true');
+  expect(container.querySelector('.waveform-detail .waveform-trace')).toBeNull();
+  expect(container.querySelectorAll('.waveform-beat-label')).toHaveLength(labels);
+  expect(overview.getAttribute('aria-valuenow')).toBe(position);
+  expect(postMessage).toHaveBeenCalledOnce();
+  expect(select).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Waveform' }));
+  expect(container.querySelector('.waveform-detail .waveform-trace')).not.toBeNull();
+  expect(terminate).toHaveBeenCalled();
+});

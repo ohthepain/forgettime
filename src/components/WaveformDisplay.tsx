@@ -1,3 +1,5 @@
+import { spectralFrequencyPosition } from "../audio/mel-spectrogram";
+import { MelSpectrogram } from "./MelSpectrogram";
 import { detailWaveformGrid } from "../audio/waveform-grid";
 import { nextZeroCrossing } from "../audio/zero-crossing";
 import {
@@ -78,6 +80,7 @@ export function WaveformDisplay({
   scope?: "import" | "annotation";
   ref?: Ref<WaveformDisplayHandle>;
 }) {
+  const [display, setDisplay] = useState<"waveform" | "mel">("waveform");
   const start = range?.start ?? 0,
     end = range?.end ?? audio.samples.length;
   const rate = audio.sampleRate;
@@ -468,6 +471,10 @@ export function WaveformDisplay({
   const instructions = useId();
   return (
     <div ref={root} className="waveform-display" data-preview-state={playing ? "playing" : "idle"}>
+      {scope === "annotation" && <div className="waveform-display-modes" role="group" aria-label="Audio display">
+        <button type="button" aria-pressed={display === "waveform"} onClick={() => setDisplay("waveform")}>Waveform</button>
+        <button type="button" aria-pressed={display === "mel"} onClick={() => setDisplay("mel")}>Spectrum</button>
+      </div>}
       <div className="waveform-detail" onPointerLeave={() => setHovered(null)}>
         <svg
           ref={plot}
@@ -481,7 +488,7 @@ export function WaveformDisplay({
           aria-label={
             cursor
               ? "Beat one position"
-              : "Training source waveform: green desired attacks, dashed blue calculated attacks, shaded uncertain regions"
+              : `Training source ${display === "mel" ? "log-frequency spectrogram" : "waveform"}: green desired attacks, dashed blue calculated attacks, shaded uncertain regions`
           }
           aria-valuemin={cursor ? start / rate : undefined}
           aria-valuemax={cursor ? (end - 1) / rate : undefined}
@@ -505,6 +512,11 @@ export function WaveformDisplay({
             if (frame >= start && frame < end) onPlace?.(frame);
           }}
         >
+          {display === "mel" && <>
+            <MelSpectrogram audio={audio} start={view.start} end={view.end} />
+            {onSelectBar && <rect x={x(Math.max(view.start, start))} width={Math.max(0, x(Math.min(view.end, end)) - x(Math.max(view.start, start)))} height="64" fill="#ffffff0c" pointerEvents="none" />}
+            {[30, 60, 120, 240, 480, 960, 1920, 3840, 7680, 15360].filter(hz => hz <= Math.min(16000, rate / 2)).map(hz => <text key={hz} x="509" y={Math.max(5, Math.min(62, spectralFrequencyPosition(hz, rate) * 64))} textAnchor="end" fill="#fff" stroke="#101819" strokeWidth="0.5" paintOrder="stroke" fontSize="3.5" pointerEvents="none">{hz >= 1000 ? `${(hz / 1000).toFixed(2)} kHz` : `${hz} Hz`}</text>)}
+          </>}
           {region && (
             <rect
               data-testid={
@@ -530,8 +542,8 @@ export function WaveformDisplay({
               pointerEvents="none"
             />
           ))}
-          <path d={detailPath} className="waveform-trace" pointerEvents="none" />
-          {onSelectBar && <>
+          {display === "waveform" && <path d={detailPath} className="waveform-trace" pointerEvents="none" />}
+          {onSelectBar && display === "waveform" && <>
             <defs><clipPath id={`${clip}-current-detail`}><rect data-testid="current-bar-detail" x={x(Math.max(view.start, start))} width={Math.max(0, x(Math.min(view.end, end)) - x(Math.max(view.start, start)))} height="64" /></clipPath></defs>
             <path d={detailPath} className="waveform-current-bar-trace" clipPath={`url(#${clip}-current-detail)`} pointerEvents="none" />
           </>}

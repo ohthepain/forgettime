@@ -311,3 +311,7 @@
 .training-file-heading .training-file-remove { margin-left: auto; }
 
 .waveform-beat-label { position: absolute; top: 3px; transform: translateX(3px); padding: 2px 5px; border-radius: 999px; background: #284c3d; color: #fff; font: 10px/1.25 ui-monospace, monospace; white-space: nowrap; pointer-events: none; }
+
+.waveform-display-modes { display: flex; gap: 4px; margin-bottom: 6px; }
+.waveform-display-modes button { padding: 4px 10px; border: 1px solid #50635c; border-radius: 6px; background: #1c282b; color: #c3cfca; cursor: pointer; }
+.waveform-display-modes button[aria-pressed="true"] { background: #36594a; color: white; border-color: #8bbca2; }
