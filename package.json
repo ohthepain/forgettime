@@ -30,7 +30,8 @@
     "audio:compare": "node --import tsx scripts/compare-audio.ts",
     "audio:fixtures:check": "node --import tsx scripts/check-audio-fixtures.ts",
     "audio:parity": "node --import tsx plugins/forgettime-audio/tests/validate-parity.ts",
-    "audio:mel-parity": "node --import tsx plugins/forgettime-audio/tests/validate-mel-parity.ts"
+    "audio:mel-parity": "node --import tsx plugins/forgettime-audio/tests/validate-mel-parity.ts",
+    "test:browser": "playwright test"
   },
   "dependencies": {
     "@aws-sdk/client-ses": "3.1034.0",
@@ -56,6 +57,7 @@
     "@capacitor/android": "8.4.2",
     "@capacitor/cli": "8.4.2",
     "@capacitor/ios": "8.4.2",
+    "@playwright/test": "1.64.1",
     "@tailwindcss/vite": "4.2.4",
     "@testing-library/dom": "10.4.1",
     "@testing-library/react": "16.3.2",

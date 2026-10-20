@@ -172,12 +172,13 @@ describe('practice screen integration', () => {
 
   it('places early hits left, retains their mounted line through snapshot expiry, and draws no uncertain score', () => {
     const early: ResolvedHit = { id: 10, time: 4, errorMs: -20, confidence: 0.9, subdivision: 'quarter', uncertain: false, displayedAt: 4.24 }
-    state = { ...state, source: 'microphone', snapshot: { ...state.snapshot, status: 'playing', beat: 1, phaseOrigin: 0, hits: [early, { ...early, id: 11, errorMs: null, uncertain: true }] } }
+    state = { ...state, source: 'microphone', snapshot: { ...state.snapshot, status: 'playing', beat: 1, phaseOrigin: 0, hits: [early, { ...early, id: 11, errorMs: null, uncertain: true, reason: 'Attack falls between plausible subdivisions' }] } }
     const { container, rerender } = render(<PracticeScreen />)
     const line = container.querySelector('.hit-line') as HTMLElement
     expect(line.style.left).toBe('40%')
     expect(container.querySelectorAll('.hit-line')).toHaveLength(1)
-    expect(screen.getByText('Uncertain attack')).toBeDefined()
+    expect(screen.getByText('Attack falls between plausible subdivisions')).toBeDefined()
+    expect(screen.getByText('No timing score for this hit')).toBeDefined()
     state = { ...state, snapshot: { ...state.snapshot, hits: [] } }
     rerender(<PracticeScreen />)
     expect(container.querySelector('.hit-line')).toBe(line)

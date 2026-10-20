@@ -4,5 +4,5 @@ export default defineConfig({
   define: optimizerBuildDefines,
   oxc: { jsx: { runtime: 'automatic' } },
   resolve: { dedupe: ['react', 'react-dom'] },
-  test: { exclude: [...configDefaults.exclude, '**/ios/**', '**/android/**'] },
+  test: { exclude: [...configDefaults.exclude, '**/ios/**', '**/android/**', '**/tests/browser/**/*.spec.ts'] },
 })

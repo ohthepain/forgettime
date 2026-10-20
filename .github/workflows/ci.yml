@@ -58,6 +58,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm audio:fixtures:check
       - run: pnpm audio:parity
+      - run: pnpm audio:mel-parity
+      - name: Install browser for waveform rendering checks
+        run: pnpm exec playwright install chromium
+      - run: pnpm test:browser
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: waveform-browser-failures
+          path: output/playwright/
+          retention-days: 7
   terraform:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -71,7 +81,7 @@ jobs:
       - run: terraform -chdir=terraform validate
       - name: Check shell syntax
         run: |
-          for script in scripts/tf-*.sh scripts/deploy*.sh scripts/test-database-provisioning.sh; do bash -n "$script"; done
+          for script in scripts/tf-*.sh scripts/deploy*.sh scripts/test-database-provisioning.sh scripts/staging-*.sh scripts/production-*.sh; do bash -n "$script"; done
           for script in scripts/docker-entrypoint.sh terraform/provision-database.sh; do sh -n "$script"; done
       - name: Verify non-destructive tenant provisioning on PostgreSQL 18
         run: scripts/test-database-provisioning.sh

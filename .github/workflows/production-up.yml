@@ -1,0 +1,27 @@
+name: Production up
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: production-ops
+  cancel-in-progress: false
+
+jobs:
+  production-up:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEPLOY }}
+          aws-region: eu-central-1
+          audience: sts.amazonaws.com
+
+      - name: Unpark production (scale ECS)
+        run: ./scripts/production-up.sh

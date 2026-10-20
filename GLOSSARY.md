@@ -75,6 +75,16 @@ _Avoid_: Every detected onset
 A detected attack whose intended musical position or timing cannot be resolved reliably. Uncertainty is different from confidently early or late playing.
 _Avoid_: Miss, extra detection, zero error
 
+### Practice displays
+
+**Timing meter**:
+The early/late display of scored hits against the fixed musical reference. Detected attacks without a reliable timing score have no positioned mark.
+_Avoid_: Feedback panel
+
+**Recorded bar**:
+The waveform display of one bar of retained audio, with markers for detected onsets and controls for bar review. A detection marker does not imply a timing score.
+_Avoid_: Recording panel
+
 ### Live input and replay
 
 **Input gain**:

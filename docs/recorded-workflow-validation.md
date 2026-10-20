@@ -123,3 +123,22 @@ Added worker-based current/mel parameter search, fixed common scoring coverage, 
 Explicit microphone start now snapshots the selected local current/mel profile; absence or invalid saved parameters retains shared defaults. Profile selection does not start capture or replace a running session's detector. Browser and native selected-profile paths analyze gain-adjusted captured PCM with the same TypeScript implementation. Native default onset/diagnostic events are replaced, while PCM validation, acknowledgements and hardware provenance remain intact. Musical reference and silence deadlines continue to use detector-accepted source timestamps and the safe analyzed watermark. Live UI labels the selected family. Original take analysis records the family and compact parameter tuple; review sliders remain independent.
 
 Validation: 120 focused tests passed across live detector, capture bridge, practice controller/UI, replay, mel and timing engine coverage; typecheck and production build passed. TypeScript/Java/Swift current-detector parity and 22-case mel spectra/flux/onset/watermark parity passed. Synthetic tests verify capture chunk invariance, offline/live onset frame agreement, selected-profile browser/native PCM equivalence, ignoring native default events, session snapshots and microphone-off restoration. No actual microphone session, acoustic accuracy, physical-device latency or native application build is claimed; native plugin sources are unchanged.
+
+### Waveform rendering regression checks
+
+`pnpm test:browser` runs Chromium smoke checks at desktop (1000×800) and phone
+(393×852) viewport sizes. Install its pinned browser first with
+`pnpm exec playwright install chromium`. The runner starts an isolated local
+fixture server; no account, database, microphone or retained take is needed.
+
+The fixture mounts the production `WaveformDisplay`, stylesheet and Spectrum
+worker with deterministic synthetic PCM and correct/missing/extra outcomes.
+Checks cover rendered pill geometry and screenshot pixels, attack selection,
+overview bar navigation in both directions, and switching to Spectrum and back.
+Golden screenshots live beside the test. Review screenshot diffs before using
+`pnpm test:browser --update-snapshots`; baselines are platform-specific (the
+initial set is macOS Chromium, run in the existing macOS CI job). Traces and failed screenshot diffs are written
+under `output/playwright/`. Keep this check alongside typecheck/component tests
+when changing waveform rendering; DOM presence cannot establish painted output.
+This is component browser rendering coverage, not full import/controller wiring,
+physical phone interaction, playback or acoustic detector validation.

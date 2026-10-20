@@ -157,7 +157,7 @@ export function PracticeScreen({ active = true }: { active?: boolean } = {}) {
     : snapshot.status === 'listening' ? 'Listening · play your first hit' : null
   const latest = snapshot.hits.at(-1)
   const lastScored = [...snapshot.hits].reverse().find(hit => !hit.uncertain && hit.errorMs !== null)
-  const detail = latest?.uncertain ? 'Uncertain attack' : lastScored?.errorMs !== undefined && lastScored.errorMs !== null
+  const detail = latest?.uncertain ? latest.reason ?? 'Uncertain attack' : lastScored?.errorMs !== undefined && lastScored.errorMs !== null
     ? Math.abs(lastScored.errorMs) < 5 ? 'Right in the pocket' : `${Math.abs(Math.round(lastScored.errorMs))} ms ${lastScored.errorMs < 0 ? 'ahead' : 'behind'}`
     : playing ? 'Beat set' : snapshot.status === 'paused' ? 'Ready when you are' : null
   async function inspectReview(action: () => void | Promise<void>) {
@@ -247,10 +247,11 @@ export function PracticeScreen({ active = true }: { active?: boolean } = {}) {
           <tr><th>Original</th><td>{originalAvailable ? review.waveform.hits.length : 'Unavailable'}</td><td>{originalAvailable ? originalResults.filter(hit => !hit.uncertain).length : 'Unavailable'}</td><td>{originalAvailable ? originalResults.filter(hit => hit.uncertain).length : 'Unavailable'}</td></tr>
           <tr><th>Loop {replay.iteration + 1}</th><td>{currentHits.length}</td><td>{currentResults.filter(hit => !hit.uncertain).length}</td><td>{currentResults.filter(hit => hit.uncertain).length}</td></tr>
         </tbody></table>
-        <details><summary>Timing results</summary><p>Original: {originalAvailable ? originalResults.map(hit => hit.uncertain ? 'uncertain' : `${Math.round(hit.errorMs!)} ms`).join(', ') || 'No scored hits' : 'analysis unavailable'}</p>
-          <p>Current: {replay.results.map(hit => `Loop ${hit.iteration + 1}: ${hit.uncertain ? 'uncertain' : `${Math.round(hit.errorMs!)} ms`}`).join(', ') || 'Waiting for resolved hits'}</p></details>
+
         <p className="waveform-note">Fresh looping state can differ from original capture. Later repetitions may settle differently; loop joins can add attacks.</p>
       </div>}
+      {review && <details><summary>Timing results</summary><p>Original: {originalAvailable ? originalResults.map(hit => hit.uncertain ? `uncertain (${hit.reason ?? 'Reason unavailable'})` : `${Math.round(hit.errorMs!)} ms`).join(', ') || 'No scored hits' : 'analysis unavailable'}</p>
+          {replay && <p>Current: {replay.results.map(hit => `Loop ${hit.iteration + 1}: ${hit.uncertain ? `uncertain (${hit.reason ?? 'Reason unavailable'})` : `${Math.round(hit.errorMs!)} ms`}`).join(', ') || 'Waiting for resolved hits'}</p>}</details>}
       {source !== 'simulation' && <DetectionDetails open={detailsOpen} toggle={() => void inspectReview(() => setDetailsOpen(value => !value))} settings={practice.detectorSettings}
         originalSettings={practice.recordedTake?.settings.detector}
         candidates={candidates} selected={inspectedCandidate} select={inspectCandidate} page={activeCandidatePage} setPage={page => void inspectReview(() => setCandidatePage(page))}
