@@ -205,7 +205,6 @@ export function PracticeScreen({ active = true }: { active?: boolean } = {}) {
         <button className="metronome-settings" aria-label="Metronome settings" aria-haspopup="dialog" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(true)}>
         <span className={`beat-counter ${showBeat ? 'is-visible' : ''}`} role="timer" aria-live="off" aria-hidden={!showBeat} aria-label={showBeat ? `Beat ${snapshot.beat} of 4` : undefined}>
           <span className="beat-current"><span className="beat-number">
-            <BeatPendulum time={practice.captureTime} origin={snapshot.phaseOrigin} bpm={snapshot.bpm} active={showBeat} />
             <span className="beat-number-value">{snapshot.beat ?? 1}</span>
           </span><span className="beat-caption">BEAT<br />OF 4</span></span>
           <span className="beat-dots" aria-hidden="true">{[1, 2, 3, 4].map(beat => <i key={beat} className={snapshot.beat === beat ? 'active' : ''} />)}</span>
@@ -216,6 +215,7 @@ export function PracticeScreen({ active = true }: { active?: boolean } = {}) {
       {(source === 'simulation' || source === 'replay') && <p className="practice-label">{source === 'simulation' ? 'SIMULATION' : 'BAR REPLAY'}</p>}
       {status && <p className="playing-status" role="status"><span className={`status-dot ${running ? 'active' : ''}`} />{status}</p>}
       <div className="timing-meter" role="img" aria-label="Timing meter. Early hits appear left, late hits right. Each line fades over one second.">
+        <BeatPendulum time={practice.captureTime} origin={snapshot.phaseOrigin} bpm={snapshot.bpm} active={showBeat} />
         <div className="centre-band" /><div className="centre-line" />
         {presented.hits.map(hit => <div key={hit.id} className={`hit-line ${Math.abs(hit.errorMs!) > 100 ? 'out-of-range' : ''}`} style={{ left: `${50 + Math.max(-100, Math.min(100, hit.errorMs!)) / 2}%` }} data-error-ms={hit.errorMs!.toFixed(2)} onAnimationEnd={() => presented.removeHit(hit.id)} />)}
         <span className="meter-hint">{playing ? 'Stay with your time' : snapshot.status === 'paused' ? 'Play to begin again' : running ? 'Your first strong hit sets beat 1' : 'A little more in time, every time.'}</span>
@@ -270,6 +270,6 @@ export function PracticeScreen({ active = true }: { active?: boolean } = {}) {
     <footer className="app-footer"><span>Listen to your own time.</span>{!running && <button onClick={() => void practice.simulate()} disabled={annotationActive || busy || importPending}>Try a simulation <span aria-hidden="true">↗</span></button>}</footer>
     {helpOpen && <section className="help-panel"><h2>Make room for the groove.</h2><p>Choose a tempo, enable the microphone, then play. Your first strong hit sets beat 1 immediately. The clock stays fixed, so drifting ahead or behind remains visible.</p><p>Auto considers straight and triplet rhythms across a short sequence. Straight uses eighths and sixteenths; Swing / triplet uses triplet subdivisions. Fills need a little interpretation time. Ambiguous attacks get no precise score.</p><p>Play the starting hit on your intended downbeat. The counter continues through gaps shorter than a full bar. After a full bar without a hit, a single take ends and the microphone stops. Hold the record button for Auto to keep listening and start a fresh take with your next strong hit. Stop ends either mode. Use Input gain beside Record to adjust incoming microphone audio. Detection sensitivity in the imported-audio section tunes import and replay analysis only.</p><p>Audio stays on your device. The latest take is held in memory for bar review, up to two minutes; a new take replaces it and closing the app discards it unless you choose Save bar on device. Saved bars remain in local app storage. Export both the WAV and .forget files for a portable copy before clearing app or browser storage. Quiet hits under cymbals may be missed. Device timing accuracy still needs real-world calibration. Changing tempo or interpretation starts a fresh reference.</p></section>}
     {accountOpen && <AccountDialog onClose={() => setAccountOpen(false)} />}
-    {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} metronomeActive={practice.metronomeActive} simulation={source === 'simulation'} />}
+    {settingsOpen && <SettingsDialog prepareCalibration={practice.stop} deviceId={practice.deviceId} onClose={() => setSettingsOpen(false)} metronomeActive={practice.metronomeActive} simulation={source === 'simulation'} />}
   </main>{trainingHost && createPortal(trainingTools, trainingHost)}</>
 }

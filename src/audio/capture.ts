@@ -1,3 +1,4 @@
+import { usePreferences } from '../lib/preferences'
 import { amplifyMicrophone, normalizeInputGain } from './input-gain'
 import { type DetectorSettings, type DetectorDiagnostics } from './detector-contract'
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core'
@@ -8,7 +9,7 @@ import { createLiveDetector } from './live-detector'
 import type { OptimizerParameters } from './training-optimizer'
 import { WaveformEnvelopeCapture, type WaveformEnvelope } from './waveform-envelope'
 import type { MetronomePlan } from './metronome'
-import { BrowserOutputAlignment, browserLatencyEstimate, type BrowserLatencyEstimate } from './output-alignment'
+import { BrowserOutputAlignment, browserLatencyEstimate, calibratedOutputCorrection, type BrowserLatencyEstimate } from './output-alignment'
 
 export interface CaptureInfo {
   /** Actual detector implementation, absent for older unknown native versions. */
@@ -351,7 +352,9 @@ export function createAudioCapture(callbacks: CaptureCallbacks, options: { devic
     if (outputFailed) return
     if (worklet && context) {
       const estimate = browserLatencyEstimate(context, stream?.getAudioTracks()[0]?.getSettings() ?? {})
-      worklet.port.postMessage({ type: 'metronome', plan: outputAlignment.align(plan, context.currentTime, estimate.correctionSeconds) })
+      const calibration = usePreferences.getState().audioCalibration
+      const correction = calibratedOutputCorrection(calibration, info?.deviceId, context.sampleRate, estimate.correctionSeconds)
+      worklet.port.postMessage({ type: 'metronome', plan: outputAlignment.align(plan, context.currentTime, correction) })
       return
     }
     if (!nativeStarted) return

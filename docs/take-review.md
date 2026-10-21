@@ -66,3 +66,31 @@ Record, the metronome and BPM share one top row. Tapping or keyboard-activating 
 ## Training annotation
 
 Recorded bar now offers **Annotate training attacks** with Correct attacks, Mark uncertainty, and Review & save. It stops capture/replay and keeps the microphone and Auto off. Desired labels are independent of calculated detections; explicit Add/Overwrite confirms review without a checkbox. Training tempo keeps beat one/attacks at their source times while recutting bar boundaries. See [training annotation](training-annotation.md) for editing, draft safeguards, source retention and validation limits.
+
+## Audio timing calibration (browser)
+
+The first action in Settings is **Calibrate**. Its instructions ask for audible
+speaker volume and a quiet room. Closing with X or Escape does not capture audio.
+**Start calibration** stops practice/replay, closes the instructions and explicitly
+requests the selected microphone. Eight ordinary metronome clicks are scheduled on the
+same AudioContext used to timestamp raw microphone frames. No drum playing is
+required; use speakers so the microphone can hear the clicks.
+
+Normalized waveform matching searches up to 500 ms after each scheduled click.
+At least six clear matches must agree within 8 ms of the median. Missing audio,
+unsupported processing, interruption or unreliable matches fail without replacing
+a prior calibration. Successful completion reports the median audio loopback delay
+and match spread, and saves only that measurement and microphone/sample-rate
+identity locally. The bounded, roughly seven-second PCM buffer is discarded;
+it never replaces the working take, enters the saved-bar library or uploads.
+
+For subsequent browser live sessions with the same microphone and sample rate,
+the measured delay replaces the browser-estimated output alignment correction.
+It advances metronome output; it never shifts recorded attack timestamps, the
+musical reference or scores. Device-change notifications clear the calibration.
+Browsers cannot reliably identify every output-route or placement change: repeat
+calibration after changing speakers, Bluetooth routes or microphone placement,
+including changes made while the app was closed. Settings also offers Reset.
+Native calibration is currently unsupported and reports that limitation rather
+than manufacturing a measurement. Synthetic matching and UI tests are not
+physical speaker/microphone accuracy validation.

@@ -1,3 +1,4 @@
+import type { AudioCalibration } from '../audio/calibration'
 import { DEFAULT_INPUT_GAIN, normalizeInputGain } from '../audio/input-gain'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
@@ -5,6 +6,8 @@ import type { InterpretationMode } from '../audio/engine'
 import { DEFAULT_START_SENSITIVITY, normalizeStartSensitivity } from '../audio/start-sensitivity'
 import { DEFAULT_METRONOME, normalizeHelpThreshold, type MetronomeMode } from '../audio/metronome'
 interface Preferences {
+  audioCalibration: AudioCalibration | null
+  setAudioCalibration: (value: AudioCalibration | null) => void
   inputGain: number
   setInputGain: (gain: number) => void
   bpm: number
@@ -21,6 +24,8 @@ interface Preferences {
   setStartSensitivity: (sensitivity: number) => void
 }
 export const usePreferences = create<Preferences>()(persist((set) => ({
+  audioCalibration: null,
+  setAudioCalibration: audioCalibration => set({ audioCalibration }),
   inputGain: DEFAULT_INPUT_GAIN,
   setInputGain: value => set({ inputGain: normalizeInputGain(value) }),
   bpm: 100,
@@ -39,7 +44,9 @@ export const usePreferences = create<Preferences>()(persist((set) => ({
   name: 'forgettime-preferences', skipHydration: true, version: 1,
   merge: (stored, current) => {
     const value = (stored ?? {}) as Partial<Preferences>
+    const calibration = value.audioCalibration
     return { ...current,
+      audioCalibration: calibration && Number.isFinite(calibration.seconds) && calibration.seconds >= 0 && calibration.seconds <= .5 && typeof calibration.deviceId === 'string' && Number.isFinite(calibration.sampleRate) && Number.isFinite(calibration.spreadMs) && Number.isFinite(calibration.measuredAt) ? calibration : null,
       inputGain: normalizeInputGain(value.inputGain ?? DEFAULT_INPUT_GAIN),
       metronomeEnabled: typeof value.metronomeEnabled === 'boolean' ? value.metronomeEnabled : current.metronomeEnabled,
       metronomeMode: ['first-bar', 'always', 'need-help'].includes(value.metronomeMode ?? '') ? value.metronomeMode! : current.metronomeMode,

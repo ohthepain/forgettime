@@ -11,17 +11,18 @@ export function BeatPendulum({ time, origin, bpm, active }: {
   // the angle, crossing the centre on each beat.
   const angle = locked ? -28 * Math.sin(Math.PI * (beats % 2)) : 0
 
-  return <svg className="beat-pendulum" viewBox="0 0 120 120" aria-hidden="true" focusable="false">
-    <path className="pendulum-arc" d="M17 25 A92 92 0 0 1 103 25" />
-    <path className="pendulum-ticks" d="M17 25 l3 5 M38 17 l1 5 M81 17 l-1 5 M103 25 l-3 5" />
-    <line className="pendulum-centre" x1="60" y1="9" x2="60" y2="108" />
-    <path className="pendulum-base" d="M44 110 H76" />
-    <g className="pendulum-arm" transform={`rotate(${angle.toFixed(3)} 60 106)`}>
-      <line className="pendulum-rod" x1="60" y1="106" x2="60" y2="17" />
-      <rect className="pendulum-weight" x="49" y="29" width="22" height="15" rx="3" />
-      <line className="pendulum-weight-detail" x1="54" y1="34" x2="66" y2="34" />
-    </g>
-    <circle className="pendulum-pivot" cx="60" cy="106" r="4" />
-    <circle className="pendulum-pin" cx="60" cy="106" r="1.4" />
-  </svg>
+  // A short source-clock pulse: incoming attacks cannot retrigger or rephase it.
+  const sinceBeat = (beats - Math.floor(beats)) * 60 / bpm
+  const pulse = locked ? Math.max(0, 1 - sinceBeat / 0.09) : 0
+
+  return <div className="meter-metronome" aria-hidden="true">
+    <div className="meter-beat-pulse" style={{ opacity: pulse }} />
+    <svg className="beat-pendulum" viewBox="0 0 120 120" focusable="false">
+      <g className="pendulum-arm" transform={`rotate(${angle.toFixed(3)} 60 106)`}>
+        <line className="pendulum-rod" x1="60" y1="106" x2="60" y2="14" />
+        <circle className="pendulum-weight" cx="60" cy="16" r="4" />
+      </g>
+      <circle className="pendulum-pivot" cx="60" cy="106" r="2.5" />
+    </svg>
+  </div>
 }

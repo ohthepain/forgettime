@@ -170,8 +170,9 @@ export function usePractice(bpm: number, mode: InterpretationMode, inputGain = D
       } catch { /* Some embedded browsers allow capture but not device enumeration. */ }
     }
     void refresh()
-    media.addEventListener('devicechange', refresh)
-    return () => { active = false; media.removeEventListener('devicechange', refresh) }
+    const changed = () => { usePreferences.getState().setAudioCalibration(null); void refresh() }
+    media.addEventListener('devicechange', changed)
+    return () => { active = false; media.removeEventListener('devicechange', changed) }
     // Refresh labels after microphone permission has been granted.
   }, [captureInfo])
 

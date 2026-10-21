@@ -1,3 +1,4 @@
+import type { AudioCalibration } from './calibration'
 import type { MetronomePlan } from './metronome'
 
 export interface BrowserLatencyEstimate {
@@ -16,6 +17,12 @@ export function browserLatencyEstimate(context: Pick<AudioContext, 'baseLatency'
   const hardware = seconds(context.outputLatency)
   const outputSeconds = base === null && hardware === null ? null : (base ?? 0) + (hardware ?? 0)
   return { inputSeconds, outputSeconds, correctionSeconds: (inputSeconds ?? 0) + (outputSeconds ?? 0) }
+}
+
+/** A measured loopback delay replaces estimates only for its captured input route. */
+export function calibratedOutputCorrection(calibration: AudioCalibration | null, deviceId: string | undefined, sampleRate: number, estimatedSeconds: number): number {
+  return calibration && calibration.deviceId === deviceId && calibration.sampleRate === sampleRate
+    ? calibration.seconds : estimatedSeconds
 }
 
 /**

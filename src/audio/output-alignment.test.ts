@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test'
-import { BrowserOutputAlignment, browserLatencyEstimate } from './output-alignment'
+import { BrowserOutputAlignment, browserLatencyEstimate, calibratedOutputCorrection } from './output-alignment'
 import type { MetronomePlan } from './metronome'
 
 describe('browser microphone/output clock alignment', () => {
@@ -46,4 +46,12 @@ describe('browser microphone/output clock alignment', () => {
     alignment.reset()
     expect(alignment.align(plan, 10, 0.3)?.origin).toBe(9.7)
   })
+})
+
+it('replaces estimated delay only for the calibrated microphone and sample rate', () => {
+  const calibration = { seconds: .123, spreadMs: 1, deviceId: 'mic', sampleRate: 48000, measuredAt: 1 }
+  expect(calibratedOutputCorrection(calibration, 'mic', 48000, .25)).toBe(.123)
+  expect(calibratedOutputCorrection(calibration, 'other', 48000, .25)).toBe(.25)
+  expect(calibratedOutputCorrection(calibration, 'mic', 44100, .25)).toBe(.25)
+  expect(calibratedOutputCorrection(null, 'mic', 48000, .25)).toBe(.25)
 })
