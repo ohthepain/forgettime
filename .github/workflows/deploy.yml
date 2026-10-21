@@ -48,6 +48,32 @@ jobs:
       AWS_TF_LOCK_TABLE: ${{ secrets.AWS_TF_LOCK_TABLE }}
     steps:
       - uses: actions/checkout@v6
+
+      - name: Inspect OIDC audience and subject
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const url = new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
+          url.searchParams.set("audience", "sts.amazonaws.com");
+
+          const response = await fetch(url, {
+            headers: {
+              Authorization: `Bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}`
+            }
+          });
+          if (!response.ok) {
+            throw new Error(`OIDC request failed: ${response.status}`);
+          }
+
+          const { value } = await response.json();
+          const claims = JSON.parse(
+            Buffer.from(value.split(".")[1], "base64url").toString()
+          );
+          console.log(JSON.stringify({
+            aud: claims.aud,
+            sub: claims.sub
+          }, null, 2));
+          NODE
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEPLOY }}
