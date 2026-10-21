@@ -1,7 +1,8 @@
 name: Android compile
 on:
-  push:
-    branches: [main, dev]
+  # Temporarily disabled for testing
+  # push:
+  #   branches: [main, dev]
   pull_request:
   workflow_dispatch:
 permissions:
