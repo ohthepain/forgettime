@@ -12,7 +12,7 @@
     "start": "node server-production.mjs",
     "preview": "vp preview",
     "typecheck": "tsc --noEmit && tsc --project tsconfig.audio-tools.json",
-    "test": "vp test run",
+    "test": "vp test run && node --test scripts/token-usage.test.mjs",
     "test:watch": "vp test",
     "db:generate": "drizzle-kit generate",
     "db:up": "docker compose up -d",
