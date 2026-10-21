@@ -17,6 +17,7 @@ A timing practice app for drummers, sharing the Logmaster platform stack. Keep s
 
 ## Architecture
 
+- For Training import, annotation, comparison, playback or profile adoption, read [Training architecture](docs/training-architecture.md) for ownership and data flow.
 - TanStack Start/React shared UI, Hono API, Better Auth, Drizzle/PostgreSQL, Zustand and Capacitor.
 - `shared-aws` owns shared VPC/ALB/listener/RDS. Forgettime consumes outputs and owns only its application resources. Never import shared resources into this Terraform state.
 - Keep a separate database, role, migration history and application secrets per Forgettime environment. Never copy Logmaster credentials.
