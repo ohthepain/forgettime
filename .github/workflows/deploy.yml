@@ -89,7 +89,7 @@ jobs:
         run: |
           test -n "$AWS_TF_STATE_BUCKET"
           test -n "$AWS_TF_LOCK_TABLE"
-          terraform -chdir=terraform init -input=false \
+          terraform -chdir=terraform init -input=false -lockfile=readonly \
             -backend-config="bucket=$AWS_TF_STATE_BUCKET" \
             -backend-config="key=forgettimeapp/terraform.tfstate" \
             -backend-config="region=$AWS_REGION" \

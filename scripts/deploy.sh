@@ -12,6 +12,7 @@ command -v docker >/dev/null
 command -v jq >/dev/null
 if [[ -n "$(git -C "$FORGETTIME_ROOT" status --porcelain)" ]]; then
   echo "Commit source changes before deploying so the image SHA tag identifies the deployed source." >&2
+  git -C "$FORGETTIME_ROOT" status --short >&2
   exit 1
 fi
 region="$(terraform -chdir="$FORGETTIME_TF_DIR" output -raw aws_region)"
