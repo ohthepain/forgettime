@@ -43,6 +43,7 @@ jobs:
       id-token: write
     env:
       FORGETTIME_ENV: ${{ github.event_name == 'push' && 'staging' || inputs.environment }}
+      TF_WORKSPACE: ${{ github.event_name == 'push' && 'staging' || inputs.environment }}
       AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
       AWS_TF_STATE_BUCKET: ${{ secrets.AWS_TF_STATE_BUCKET }}
       AWS_TF_LOCK_TABLE: ${{ secrets.AWS_TF_LOCK_TABLE }}
