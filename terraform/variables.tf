@@ -54,7 +54,7 @@ variable "alb_listener_rule_priority" {
 variable "ecs_desired_count" {
   description = "Start at 0 until the tenant database and image exist, then set to 1."
   type        = number
-  default     = 0
+  default     = 1
 }
 
 variable "ecs_cpu" {
